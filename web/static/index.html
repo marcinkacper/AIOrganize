@@ -252,9 +252,9 @@
       background: #000;
       border: 1px solid #30363d;
       border-radius: 10px;
-      width: 95%;
-      max-width: 1200px;
-      height: 85vh;
+      width: 96%;
+      max-width: 1650px;
+      height: 90vh;
       display: flex;
       flex-direction: column;
       box-shadow: 0 20px 40px rgba(0,0,0,0.8);
@@ -267,13 +267,26 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-shrink: 0;
     }
     #terminal-container {
-      flex: 1;
+      flex: 1 1 0;
+      min-height: 0;
+      min-width: 0;
       width: 100%;
       height: 100%;
-      padding: 8px;
+      padding: 6px;
       background: #000;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    .xterm {
+      height: 100%;
+      width: 100%;
+      padding: 0;
+    }
+    .xterm-viewport {
+      overflow-y: auto !important;
     }
   </style>
 </head>
@@ -286,6 +299,7 @@
       <span class="badge-pill badge-green">Live Terminal & Quotas</span>
     </div>
     <div style="display: flex; gap: 10px;">
+      <button class="btn btn-console" onclick="openTerminalWindow('bash')" title="Open Interactive Server Bash Shell in new window">💻 Bash Console</button>
       <button class="btn" onclick="syncQuotas()">⚡ Refresh Limits</button>
       <button class="btn" onclick="fetchData()">↻ Refresh</button>
     </div>
@@ -411,6 +425,31 @@
     </div>
   </div>
 
+  <!-- Login Instructions Modal -->
+  <div class="modal-overlay" id="login-modal">
+    <div class="modal-content" style="max-width: 520px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 22px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="font-size: 16px; font-weight: 600;" id="login-modal-title">🔑 Log in Profile</h3>
+        <button class="btn btn-sm" onclick="closeModal('login-modal')">✕</button>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
+        Aby zalogować profil, uruchom poniższą komendę w konsoli serwera (Bash Console), otwórz wygenerowany link OAuth w przeglądarce i wklej kod autoryzacyjny:
+      </p>
+      <div style="position: relative; margin-bottom: 16px;">
+        <input id="login-cmd-input" type="text" readonly 
+               style="width: 100%; padding: 10px 95px 10px 12px; background: #0b0f14; color: #58a6ff; border: 1px solid #30363d; border-radius: 6px; font-family: var(--font-mono); font-size: 13px;">
+        <button class="btn btn-sm btn-primary" onclick="copyLoginCmd()" style="position: absolute; right: 6px; top: 6px;">📋 Kopiuj</button>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px;">
+        <span style="font-size: 11px; color: var(--text-muted);">Uruchom bezpośrednio w Bash:</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm" onclick="closeModal('login-modal')">Zamknij</button>
+          <button class="btn btn-sm btn-console" onclick="openBashAndRunLogin()">💻 Otwórz Bash Console</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let profilesData = [];
     let activeWs = null;
@@ -468,7 +507,7 @@
           buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${eng.id}')">Start</button>`;
         }
 
-        const icon = eng.id === 'claude' ? '🤖' : '⚡';
+        const icon = eng.id === 'claude' ? '🤖' : (eng.id === 'codex' ? '⚡' : '💻');
 
         card.innerHTML = `
           <div class="profile-card-header">
@@ -700,6 +739,8 @@
             <div class="profile-meta">
               <div>PID: <span class="mono-val">${p.pid || '-'}</span></div>
               <div>Active UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
+              ${p.active_machine ? `<div style="margin-top: 3px;">Machine: <span class="badge-pill badge-purple" style="font-size: 10px; padding: 2px 7px;">🖥️ ${p.active_machine}</span></div>` : ''}
+              ${p.active_directory ? `<div style="margin-top: 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.active_directory}">Dir: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="navigator.clipboard.writeText('${p.active_directory}'); showToast('Copied directory path!');">📁 ${p.active_directory}</span></div>` : ''}
             </div>
           </div>
           <div class="profile-actions">${buttons}</div>
@@ -805,7 +846,40 @@
       fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(container);
-      fitAddon.fit();
+
+      function safeFitModal() {
+        try {
+          if (!term || !fitAddon || !container) return;
+          if (container.clientWidth < 40 || container.clientHeight < 40) return;
+          fitAddon.fit();
+          if (activeWs && activeWs.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
+            activeWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
+        } catch (e) {
+          console.warn('safeFitModal error', e);
+        }
+      }
+
+      if (window.modalResizeObserver) {
+        window.modalResizeObserver.disconnect();
+      }
+      window.modalResizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(safeFitModal);
+      });
+      window.modalResizeObserver.observe(container);
+
+      window.addEventListener('resize', () => {
+        requestAnimationFrame(safeFitModal);
+      });
+
+      if (document.fonts) {
+        document.fonts.ready.then(() => safeFitModal());
+      }
+      requestAnimationFrame(() => {
+        safeFitModal();
+        setTimeout(safeFitModal, 60);
+        setTimeout(safeFitModal, 250);
+      });
 
       // Auto-copy on select
       term.onSelectionChange(() => {
@@ -875,8 +949,7 @@
       activeWs.binaryType = 'arraybuffer';
 
       activeWs.onopen = () => {
-        // Send initial size
-        activeWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        safeFitModal();
       };
 
       activeWs.onmessage = (ev) => {
@@ -901,10 +974,6 @@
         if (activeWs && activeWs.readyState === WebSocket.OPEN) {
           activeWs.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
         }
-      });
-
-      window.addEventListener('resize', () => {
-        if (fitAddon) fitAddon.fit();
       });
     }
 
@@ -941,6 +1010,10 @@
     }
 
     function closeTerminal() {
+      if (window.modalResizeObserver) {
+        window.modalResizeObserver.disconnect();
+        window.modalResizeObserver = null;
+      }
       if (activeWs) {
         activeWs.close();
         activeWs = null;
@@ -1007,7 +1080,32 @@
     }
 
     function promptLogin(profile) {
-      alert(`To login profile ${profile}, run in your terminal:\n\nagy-manager login ${profile}\n\nand paste the code.`);
+      const cmd = `agy-manager login ${profile}`;
+      document.getElementById('login-modal-title').innerText = `🔑 Log in Profile: ${profile}`;
+      const input = document.getElementById('login-cmd-input');
+      input.value = cmd;
+      document.getElementById('login-modal').style.display = 'flex';
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 50);
+    }
+
+    async function copyLoginCmd() {
+      const input = document.getElementById('login-cmd-input');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        showToast('Skopiowano komendę do schowka!');
+      } catch (err) {
+        input.select();
+        document.execCommand('copy');
+        showToast('Skopiowano komendę do schowka!');
+      }
+    }
+
+    function openBashAndRunLogin() {
+      closeModal('login-modal');
+      openTerminalWindow('bash');
     }
 
     async function logoutProfile(profile) {

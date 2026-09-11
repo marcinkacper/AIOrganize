@@ -5,6 +5,7 @@ import fcntl
 import termios
 import struct
 import select
+import socket
 import asyncio
 import json
 import subprocess
@@ -82,6 +83,9 @@ def get_profiles():
     cached_quotas = quota.get_cached_quotas()
     dups = core.get_duplicate_accounts()
 
+    conv_machines = core.get_conversation_machines()
+    hostname = socket.gethostname() or "ferrari"
+
     data = []
     for p in profiles:
         logged_in = core.is_profile_logged_in(p)
@@ -90,6 +94,15 @@ def get_profiles():
         s_info = session_by_profile.get(p)
         pid = s_info.get("pid") if s_info else None
         active_uuid = s_info.get("conversation_uuid") if s_info else None
+        active_cwd = s_info.get("cwd") if s_info else None
+        
+        active_machine = None
+        if pid or is_tmux_active:
+            active_machine = hostname
+            orig_m = conv_machines.get(active_uuid) if active_uuid else None
+            if orig_m and orig_m not in [hostname, "kacper"]:
+                active_machine = f"{hostname} ({orig_m})"
+
         q = cached_quotas.get(p, {})
         email = core.get_profile_email(p)
         is_dup = bool(email and email in dups)
@@ -105,6 +118,8 @@ def get_profiles():
             "tmux_session": tmux_name,
             "pid": pid,
             "active_uuid": active_uuid,
+            "active_machine": active_machine,
+            "active_directory": active_cwd,
             "quota": {
                 "gemini_effective_pct": q.get("gemini_effective_pct"),
                 "gemini_status": q.get("gemini_status") or "Unknown",
@@ -314,7 +329,10 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
     env["PATH"] = f"/home/kacper/.local/bin:{env.get('PATH', '')}"
 
     # Spawn tmux new-session -A to attach if running, or launch if not
-    if profile == "claude":
+    if profile == "bash":
+        home_dir = "/home/kacper"
+        run_cmd = ["bash", "-l"]
+    elif profile == "claude":
         run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
     elif profile == "codex":
         run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
@@ -331,6 +349,10 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
         env=env
     )
     os.close(slave_fd)
+
+    # Ensure tmux session dynamically adapts window size to client
+    subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], capture_output=True, check=False)
+    subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], capture_output=True, check=False)
 
     loop = asyncio.get_running_loop()
 
@@ -358,6 +380,12 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
                                 rows = int(cmd.get("rows", 32))
                                 ws = struct.pack("HHHH", rows, cols, 0, 0)
                                 fcntl.ioctl(master_fd, termios.TIOCSWINSZ, ws)
+                                # Force tmux window to instantly match client viewport
+                                subprocess.run(
+                                    ["tmux", "resize-window", "-t", session_name, "-x", str(cols), "-y", str(rows)],
+                                    capture_output=True,
+                                    check=False
+                                )
                                 continue
                         except Exception:
                             pass

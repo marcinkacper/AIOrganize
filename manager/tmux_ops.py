@@ -94,7 +94,9 @@ def start_profile_session(
 
     session_name = get_tmux_session_name(profile)
 
-    if profile == "claude":
+    if profile == "bash":
+        run_cmd = ["bash", "-l"]
+    elif profile == "claude":
         run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
     elif profile == "codex":
         run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
@@ -116,6 +118,10 @@ def start_profile_session(
         ["tmux", "new-session", "-d", "-s", session_name, "-c", workspace_dir] + run_cmd,
         check=True
     )
+
+    # Dynamic auto-resize to client
+    subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], check=False)
+    subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], check=False)
 
     # Configure status bar for clarity
     subprocess.run(

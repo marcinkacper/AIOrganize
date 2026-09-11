@@ -163,12 +163,25 @@
     }
 
     #terminal-container {
-      flex: 1;
+      flex: 1 1 0;
+      min-height: 0;
+      min-width: 0;
       width: 100%;
-      height: calc(100% - 46px);
-      padding: 6px;
+      height: 100%;
+      padding: 4px;
       background: #000000;
       overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    .xterm {
+      height: 100%;
+      width: 100%;
+      padding: 0;
+    }
+
+    .xterm-viewport {
+      overflow-y: auto !important;
     }
 
     #toast {
@@ -265,7 +278,35 @@
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);
-    fitAddon.fit();
+
+    function safeFit() {
+      try {
+        if (!term || !fitAddon || !container) return;
+        if (container.clientWidth < 40 || container.clientHeight < 40) return;
+        fitAddon.fit();
+        if (ws && ws.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
+          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        }
+      } catch (e) {
+        console.warn("safeFit error", e);
+      }
+    }
+
+    // Auto-fit to window / container immediately and on every size change
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(safeFit);
+    });
+    ro.observe(container);
+
+    window.addEventListener("resize", () => {
+      requestAnimationFrame(safeFit);
+    });
+
+    if (document.fonts) {
+      document.fonts.ready.then(() => safeFit());
+    }
+    setTimeout(safeFit, 50);
+    setTimeout(safeFit, 200);
 
     term.onSelectionChange(() => {
       if (term.hasSelection()) {
@@ -329,7 +370,7 @@
 
     ws.onopen = () => {
       document.getElementById("status-dot").className = "status-dot";
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      safeFit();
     };
 
     ws.onmessage = (ev) => {
@@ -362,9 +403,6 @@
       }
     });
 
-    window.addEventListener("resize", () => {
-      fitAddon.fit();
-    });
 
     async function copySelection() {
       if (term && term.hasSelection()) {

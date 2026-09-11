@@ -35,7 +35,7 @@ def validate_uuid(uuid_str: str) -> bool:
 def get_profile_home(profile: str) -> str:
     if not validate_profile_name(profile):
         raise ValueError(f"Invalid profile name: {profile}")
-    if profile in ["claude", "codex"]:
+    if profile in ["claude", "codex", "bash"]:
         return "/home/kacper"
     return os.path.join(PROFILES_DIR, profile, "home")
 
@@ -247,12 +247,19 @@ def get_active_sessions() -> List[Dict[str, Any]]:
                         except Exception:
                             pass
 
+            proc_cwd = None
+            try:
+                proc_cwd = os.path.realpath(os.path.join(pid_dir, "cwd"))
+            except Exception:
+                pass
+
             active.append({
                 "pid": int(pid_str),
                 "profile": profile_name,
                 "conversation_uuid": conv_uuid,
                 "cmdline": " ".join(cmd_args),
-                "home": home
+                "home": home,
+                "cwd": proc_cwd
             })
         except (PermissionError, FileNotFoundError):
             continue
@@ -906,6 +913,32 @@ def get_engines_status() -> List[Dict[str, Any]]:
         "tmux_session": "agy-codex",
         "pid": codex_pid,
         "description": "OpenAI Codex agentic coding CLI"
+    })
+
+    # Bash Console (Server Shell)
+    bash_active = "agy-bash" in tmux_sessions
+    bash_pid = None
+    if bash_active:
+        try:
+            p_res = subprocess.run(["tmux", "list-panes", "-t", "agy-bash", "-F", "#{pane_pid}"], capture_output=True, text=True)
+            if p_res.returncode == 0 and p_res.stdout.strip():
+                bash_pid = int(p_res.stdout.strip().splitlines()[0])
+        except Exception:
+            pass
+
+    engines.append({
+        "id": "bash",
+        "name": "Bash Shell",
+        "binary": "bash",
+        "version": "5.2",
+        "provider": "GNU / Linux",
+        "auth_type": "Server Shell",
+        "email": "kacper@ferrari",
+        "logged_in": True,
+        "tmux_active": bash_active,
+        "tmux_session": "agy-bash",
+        "pid": bash_pid,
+        "description": "Interactive server terminal for admin, agy login & custom commands"
     })
 
     return engines
