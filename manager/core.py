@@ -849,6 +849,14 @@ def get_engines_status() -> List[Dict[str, Any]]:
 
     # Claude Code
     claude_logged_in = os.path.isfile("/home/kacper/.claude.json") or os.path.isfile("/home/kacper/.claude/.credentials.json")
+    claude_email = None
+    if os.path.isfile("/home/kacper/.claude.json"):
+        try:
+            with open("/home/kacper/.claude.json", "r") as f:
+                claude_email = json.load(f).get("oauthAccount", {}).get("emailAddress")
+        except Exception:
+            pass
+
     claude_active = "agy-claude" in tmux_sessions
     claude_pid = None
     if claude_active:
@@ -866,6 +874,7 @@ def get_engines_status() -> List[Dict[str, Any]]:
         "version": "2.1.269",
         "provider": "Anthropic",
         "auth_type": "Claude Pro",
+        "email": claude_email or "m.kasprzyk@kenetic.com.pl",
         "logged_in": claude_logged_in,
         "tmux_active": claude_active,
         "tmux_session": "agy-claude",
