@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Multi-Profile Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --card-border: #30363d;
+      --card-hover: #1f242c;
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent-blue: #58a6ff;
+      --accent-green: #238636;
+      --accent-green-hover: #2ea043;
+      --accent-red: #da3633;
+      --accent-red-hover: #f85149;
+      --accent-purple: #bc8cff;
+      --accent-yellow: #d29922;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .header-title { display: flex; align-items: center; gap: 12px; }
+    .header-title h1 { font-size: 22px; font-weight: 700; }
+    .badge-pill {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 12px;
+      text-transform: uppercase;
+    }
+    .badge-blue { background: rgba(88, 166, 255, 0.15); color: var(--accent-blue); border: 1px solid rgba(88, 166, 255, 0.3); }
+    .badge-green { background: rgba(35, 134, 54, 0.15); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
+    .badge-gray { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); border: 1px solid var(--card-border); }
+    .badge-red { background: rgba(218, 54, 51, 0.15); color: var(--accent-red-hover); border: 1px solid rgba(218, 54, 51, 0.3); }
+    .badge-yellow { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); border: 1px solid rgba(210, 153, 34, 0.3); }
+
+    .btn {
+      background: #21262d;
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: #30363d; border-color: #8b949e; }
+    .btn-primary { background: var(--accent-green); border-color: rgba(240, 246, 252, 0.1); color: #fff; }
+    .btn-primary:hover { background: var(--accent-green-hover); }
+    .btn-danger { background: rgba(218, 54, 51, 0.2); border-color: rgba(218, 54, 51, 0.4); color: #f85149; }
+    .btn-danger:hover { background: var(--accent-red); color: #fff; }
+    .btn-sm { padding: 4px 8px; font-size: 12px; }
+
+    /* Top Stats Bar */
+    .top-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .stat-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
+    .stat-value { font-size: 20px; font-weight: 700; }
+
+    /* Profiles Grid */
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .profiles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .profile-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .profile-card:hover { border-color: #58a6ff44; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .profile-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .profile-name { font-size: 15px; font-weight: 600; font-family: var(--font-mono); }
+    .profile-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+    .profile-meta div { margin-bottom: 4px; }
+    .mono-val { font-family: var(--font-mono); color: var(--text-main); }
+    .profile-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+
+    /* Tables */
+    .data-table-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      overflow-x: auto;
+      margin-bottom: 32px;
+    }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+    th { background: #1f242c; padding: 10px 14px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--card-border); }
+    td { padding: 10px 14px; border-bottom: 1px solid #21262d; }
+    tr:hover td { background: var(--card-hover); }
+
+    /* Terminal Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(2px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      width: 90%;
+      max-width: 900px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 16px 32px rgba(0,0,0,0.6);
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-body {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .term-window {
+      background: #000;
+      color: #39ff14;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 14px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      height: 480px;
+      overflow-y: auto;
+      border: 1px solid #333;
+    }
+    .modal-footer {
+      padding: 12px 18px;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-title">
+      <h1>Antigravity Multi-Profile Manager</h1>
+      <span class="badge-pill badge-blue">12 Profiles Pool</span>
+      <span class="badge-pill badge-green">Shared Trajectories</span>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button class="btn" onclick="fetchData()">↻ Refresh</button>
+    </div>
+  </header>
+
+  <!-- Top Metrics Bar -->
+  <div class="top-stats">
+    <div class="stat-card">
+      <div class="stat-label">Logged In Profiles</div>
+      <div class="stat-value" id="stat-logged-in">- / 12</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Sessions</div>
+      <div class="stat-value" id="stat-active">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Klajner External Engine</div>
+      <div class="stat-value" id="stat-klajner">Checking...</div>
+      <div style="font-size: 11px; color: var(--text-muted);" id="stat-klajner-sub">Model: -</div>
+    </div>
+  </div>
+
+  <!-- Profiles Grid -->
+  <div class="section-title">
+    <span>Pool Profiles (01 - 12)</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Independent Google OAuth Credentials</span>
+  </div>
+  <div class="profiles-grid" id="profiles-container">
+    <div style="color: var(--text-muted); padding: 20px;">Loading profiles...</div>
+  </div>
+
+  <!-- Shared Conversations -->
+  <div class="section-title">
+    <span>Shared Conversations</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Switchable Across All Authenticated Profiles</span>
+  </div>
+  <div class="data-table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>UUID</th>
+          <th>Steps</th>
+          <th>Size</th>
+          <th>Modified</th>
+          <th>Title / Preview</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="conversations-table">
+        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading conversations...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Terminal / Preview Modal -->
+  <div class="modal-overlay" id="preview-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title" style="font-size: 15px;">Session Preview</h3>
+        <button class="btn btn-sm" onclick="closeModal('preview-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="term-window" id="term-output">Loading terminal output...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="refreshPreview()">↻ Refresh Output</button>
+        <button class="btn btn-sm" onclick="closeModal('preview-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Switch Modal -->
+  <div class="modal-overlay" id="switch-modal">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3 style="font-size: 15px;">Switch Conversation to Profile</h3>
+        <button class="btn btn-sm" onclick="closeModal('switch-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom: 12px;">
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Conversation UUID</label>
+          <input id="switch-uuid" type="text" readonly style="width: 100%; padding: 8px; background: #000; color: #fff; border: 1px solid var(--card-border); border-radius: 4px; font-family: var(--font-mono); font-size: 12px;">
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Target Profile</label>
+          <select id="switch-target" style="width: 100%; padding: 8px; background: #21262d; color: #fff; border: 1px solid var(--card-border); border-radius: 4px;">
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeModal('switch-modal')">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="confirmSwitch()">Execute Safe Switch</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentPreviewProfile = null;
+    let profilesData = [];
+
+    async function fetchData() {
+      try {
+        // Fetch profiles
+        const resProfiles = await fetch('/api/profiles');
+        const pData = await resProfiles.json();
+        profilesData = pData.profiles;
+        renderProfiles(profilesData);
+
+        // Fetch conversations
+        const resConvs = await fetch('/api/conversations?limit=25');
+        const cData = await resConvs.json();
+        renderConversations(cData.conversations);
+
+        // Fetch klajner
+        const resK = await fetch('/api/klajner');
+        const kData = await resK.json();
+        renderKlajner(kData);
+      } catch (err) {
+        console.error('Error fetching data:', err);
+      }
+    }
+
+    function renderProfiles(profiles) {
+      const container = document.getElementById('profiles-container');
+      container.innerHTML = '';
+
+      let loggedCount = 0;
+      let activeCount = 0;
+
+      profiles.forEach(p => {
+        if (p.logged_in) loggedCount++;
+        if (p.tmux_active) activeCount++;
+
+        const card = document.createElement('div');
+        card.className = 'profile-card';
+
+        const loginBadge = p.logged_in 
+          ? '<span class="badge-pill badge-green">Authenticated</span>' 
+          : '<span class="badge-pill badge-gray">Not Signed In</span>';
+
+        const sessionBadge = p.tmux_active 
+          ? '<span class="badge-pill badge-blue">tmux: ' + p.tmux_session + '</span>' 
+          : '<span class="badge-pill badge-gray">Idle</span>';
+
+        const activeUuidText = p.active_uuid 
+          ? `<span class="mono-val" style="color: var(--accent-blue);">${p.active_uuid.substring(0, 16)}...</span>` 
+          : '<span style="color: var(--text-muted);">-</span>';
+
+        let buttons = '';
+        if (p.logged_in) {
+          if (p.tmux_active) {
+            buttons += `<button class="btn btn-sm" onclick="openPreview('${p.name}')">Preview</button>`;
+            buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')">Stop</button>`;
+          } else {
+            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">Start</button>`;
+          }
+        } else {
+          buttons += `<button class="btn btn-sm" onclick="promptLogin('${p.name}')">Login</button>`;
+        }
+
+        card.innerHTML = `
+          <div>
+            <div class="profile-header">
+              <span class="profile-name">${p.name}</span>
+              ${loginBadge}
+            </div>
+            <div class="profile-meta">
+              <div>Session: ${sessionBadge}</div>
+              <div>Active UUID: ${activeUuidText}</div>
+              <div>PID: <span class="mono-val">${p.pid || '-'}</span></div>
+            </div>
+          </div>
+          <div class="profile-actions">${buttons}</div>
+        `;
+        container.appendChild(card);
+      });
+
+      document.getElementById('stat-logged-in').innerText = `${loggedCount} / 12`;
+      document.getElementById('stat-active').innerText = `${activeCount} running`;
+    }
+
+    function renderConversations(convs) {
+      const tbody = document.getElementById('conversations-table');
+      tbody.innerHTML = '';
+
+      convs.forEach(c => {
+        const tr = document.createElement('tr');
+        const sizeKb = Math.round(c.size_bytes / 1024) + ' KB';
+        const mtime = (c.last_modified || '').substring(0, 19).replace('T', ' ');
+        const walBadge = c.has_wal ? '<span class="badge-pill badge-yellow" style="margin-left: 6px;">WAL</span>' : '';
+
+        tr.innerHTML = `
+          <td style="font-family: var(--font-mono); font-size: 12px;">${c.uuid}</td>
+          <td>${c.steps}</td>
+          <td>${sizeKb}</td>
+          <td>${mtime}</td>
+          <td>${c.title} ${walBadge}</td>
+          <td>
+            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')">Switch to...</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderKlajner(k) {
+      const statElem = document.getElementById('stat-klajner');
+      const subElem = document.getElementById('stat-klajner-sub');
+
+      if (k.online) {
+        statElem.innerHTML = `<span style="color: #3fb950;">ONLINE (${k.response_time_ms} ms)</span>`;
+        let limitText = k.rate_limit_detected ? '<span style="color: var(--accent-red); font-weight: bold;">[⚠️ 429 LIMIT ALERT]</span>' : '[Limits Normal]';
+        subElem.innerHTML = `Default: ${k.default_model || '-'} ${limitText}`;
+      } else {
+        statElem.innerHTML = `<span style="color: var(--accent-red);">OFFLINE</span>`;
+        subElem.innerHTML = `Status: ${k.status}`;
+      }
+    }
+
+    async function startProfile(profile) {
+      try {
+        await fetch('/api/start', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ profile: profile })
+        });
+        fetchData();
+      } catch (err) {
+        alert('Failed to start profile: ' + err);
+      }
+    }
+
+    async function stopTarget(target) {
+      if (!confirm(`Are you sure you want to stop ${target}?`)) return;
+      try {
+        await fetch('/api/stop', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ target: target })
+        });
+        fetchData();
+      } catch (err) {
+        alert('Failed to stop: ' + err);
+      }
+    }
+
+    function promptLogin(profile) {
+      alert(`To login profile ${profile}, run in your terminal:\n\nagy-manager login ${profile}\n\nand paste the code.`);
+    }
+
+    async function openPreview(profile) {
+      currentPreviewProfile = profile;
+      document.getElementById('modal-title').innerText = `Live Terminal Preview: ${profile} (tmux: agy-${profile})`;
+      document.getElementById('preview-modal').style.display = 'flex';
+      refreshPreview();
+    }
+
+    async function refreshPreview() {
+      if (!currentPreviewProfile) return;
+      const res = await fetch(`/api/preview/${currentPreviewProfile}`);
+      const data = await res.json();
+      document.getElementById('term-output').innerText = data.content || '(No terminal output or session inactive)';
+    }
+
+    function openSwitchModal(uuid) {
+      document.getElementById('switch-uuid').value = uuid;
+      const select = document.getElementById('switch-target');
+      select.innerHTML = '';
+      profilesData.filter(p => p.logged_in).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.innerText = `${p.name} ${p.tmux_active ? '(Active)' : '(Idle)'}`;
+        select.appendChild(opt);
+      });
+      document.getElementById('switch-modal').style.display = 'flex';
+    }
+
+    async function confirmSwitch() {
+      const uuid = document.getElementById('switch-uuid').value;
+      const target = document.getElementById('switch-target').value;
+      if (!target || !uuid) return;
+
+      try {
+        const res = await fetch('/api/switch', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ target_profile: target, uuid: uuid })
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Switch failed');
+        }
+        closeModal('switch-modal');
+        fetchData();
+        alert(`Successfully switched conversation ${uuid.substring(0, 8)}... to ${target}!`);
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).style.display = 'none';
+    }
+
+    // Auto-refresh every 5 seconds
+    fetchData();
+    setInterval(fetchData, 5000);
+  </script>
+</body>
+</html>
