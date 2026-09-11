@@ -1,12 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity Multi-Profile Manager & Console</title>
+  <meta name="google" content="notranslate">
+  <meta name="format-detection" content="telephone=no">
+  <title>Menedżer Multi-Profili Antigravity i Konsola</title>
+  <link rel="manifest" href="/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
   <!-- xterm.js CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -252,13 +258,21 @@
       background: #000;
       border: 1px solid #30363d;
       border-radius: 10px;
-      width: 96%;
-      max-width: 1650px;
-      height: 90vh;
+      width: 96vw;
+      max-width: 1750px;
+      height: 92vh;
       display: flex;
       flex-direction: column;
       box-shadow: 0 20px 40px rgba(0,0,0,0.8);
       overflow: hidden;
+      transition: width 0.2s, height 0.2s, max-width 0.2s;
+    }
+    .modal-terminal-content.fullscreen {
+      width: 100vw !important;
+      max-width: 100vw !important;
+      height: 100vh !important;
+      border-radius: 0 !important;
+      border: none !important;
     }
     .modal-terminal-header {
       background: #161b22;
@@ -270,12 +284,13 @@
       flex-shrink: 0;
     }
     #terminal-container {
-      flex: 1 1 0;
+      flex: 1 1 auto;
       min-height: 0;
       min-width: 0;
       width: 100%;
-      height: 100%;
-      padding: 6px;
+      height: calc(100% - 44px);
+      max-height: calc(100% - 44px);
+      padding: 2px 4px 6px 4px;
       background: #000;
       overflow: hidden;
       box-sizing: border-box;
@@ -294,70 +309,113 @@
 
   <header>
     <div class="header-title">
-      <h1>Antigravity Multi-Profile Manager</h1>
-      <span class="badge-pill badge-blue">12 Profiles Pool</span>
-      <span class="badge-pill badge-green">Live Terminal & Quotas</span>
+      <h1>Menedżer Multi-Profili Antigravity</h1>
+      <span class="badge-pill badge-blue">Pula 12 Profili</span>
+      <span class="badge-pill badge-green">Terminal Live i Kwoty</span>
     </div>
     <div style="display: flex; gap: 10px;">
-      <button class="btn btn-console" onclick="openTerminalWindow('bash')" title="Open Interactive Server Bash Shell in new window">💻 Bash Console</button>
-      <button class="btn" onclick="syncQuotas()">⚡ Refresh Limits</button>
-      <button class="btn" onclick="fetchData()">↻ Refresh</button>
+      <button class="btn btn-console" onclick="openTerminalWindow('bash')" title="Otwórz interaktywną powłokę Bash serwera w osobnym oknie">💻 Konsola Bash</button>
+      <button class="btn" onclick="syncQuotas()">⚡ Odśwież limity</button>
+      <button class="btn" onclick="fetchData()">↻ Odśwież</button>
     </div>
   </header>
 
   <!-- Top Stats Bar -->
   <div class="top-stats">
     <div class="stat-card">
-      <div class="stat-label">Logged In Profiles</div>
+      <div class="stat-label">Zalogowane profile</div>
       <div class="stat-value" id="stat-logged-in">- / 12</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Usable Gemini Pool</div>
-      <div class="stat-value" style="color: var(--accent-green);" id="stat-usable">- ready</div>
-      <div style="font-size: 11px; color: var(--text-muted);" id="stat-usable-sub">- blocked/cooldown</div>
+      <div class="stat-label">Dostępna pula Gemini</div>
+      <div class="stat-value" style="color: var(--accent-green);" id="stat-usable">- gotowe</div>
+      <div style="font-size: 11px; color: var(--text-muted);" id="stat-usable-sub">- wstrzymane/cooldown</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Active Sessions</div>
+      <div class="stat-label">Aktywne sesje</div>
       <div class="stat-value" id="stat-active">-</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Limits Polling Interval</div>
-      <div class="stat-value" style="font-size: 16px; color: var(--accent-green);">Every 5 min (Auto)</div>
-      <div style="font-size: 11px; color: var(--text-muted);" id="stat-quota-sync">Last sync: -</div>
+      <div class="stat-label">Interwał sprawdzania limitów</div>
+      <div class="stat-value" style="font-size: 16px; color: var(--accent-green);">Co 5 min (Auto)</div>
+      <div style="font-size: 11px; color: var(--text-muted);" id="stat-quota-sync">Ostatnia synchronizacja: -</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Klajner External Engine</div>
-      <div class="stat-value" id="stat-klajner">Checking...</div>
+      <div class="stat-label">Zewnętrzny silnik Klajner</div>
+      <div class="stat-value" id="stat-klajner">Sprawdzanie...</div>
       <div style="font-size: 11px; color: var(--text-muted);" id="stat-klajner-sub">Model: -</div>
     </div>
   </div>
 
   <!-- Autonomous AI Engines: Claude Code & OpenAI Codex -->
   <div class="section-title">
-    <span>Autonomous AI Engines (Claude Code & OpenAI Codex)</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Multi-Model Coding Fleet · Real-Time Interactive Consoles</span>
+    <span>Autonomiczne Silniki AI (Claude Code & OpenAI Codex)</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Flota kodowania multi-model · Interaktywne konsole na żywo</span>
   </div>
   <div class="profiles-grid" id="engines-container" style="margin-bottom: 25px;">
-    <div style="color: var(--text-muted); padding: 20px;">Loading AI engines...</div>
+    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie silników AI...</div>
   </div>
 
   <!-- Profiles Grid -->
   <div class="section-title">
-    <span>Antigravity Profiles & Live Quota Limits</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Independent Google OAuth Accounts · Live WebSocket Terminal</span>
+    <span>Profile Antigravity i Limity Na Żywo</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Niezależne konta Google OAuth · Terminal WebSocket Na Żywo</span>
   </div>
   <div class="profiles-grid" id="profiles-container">
-    <div style="color: var(--text-muted); padding: 20px;">Loading profiles & quotas...</div>
+    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie profili i limitów...</div>
   </div>
 
   <!-- Shared Conversations -->
   <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
     <div>
-      <span>Shared Conversations</span>
-      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Fleet Aggregated across Tailscale (porsche, audi, ford, ferrari)</span>
+      <span>Współdzielone Rozmowy Floty</span>
+      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Zagregowane z floty przez sieć Tailscale (porsche, audi, ford, ferrari)</span>
     </div>
     <div style="display: flex; gap: 8px; align-items: center;">
-      <button class="btn btn-sm btn-primary" onclick="triggerFleetSync()" title="Pull new sessions from porsche, audi, and ford">🔄 Sync Fleet Sessions</button>
+      <button class="btn btn-sm btn-primary" onclick="triggerFleetSync()" title="Pobierz nowe sesje z serwerów porsche, audi i ford">🔄 Synchronizuj sesje floty</button>
+    </div>
+  </div>
+
+  <!-- Conversation Category Tabs -->
+  <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; flex-wrap: wrap;">
+    <button id="tab-btn-dev" class="btn btn-sm btn-primary" onclick="switchConvCategory('dev')" style="padding: 6px 14px; font-weight: 600;">
+      🖥️ Sesje Dev / Robocze <span id="count-badge-dev" style="background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px;">...</span>
+    </button>
+    <button id="tab-btn-smartstaff" class="btn btn-sm" onclick="switchConvCategory('smartstaff')" style="padding: 6px 14px; font-weight: 500;">
+      🤖 SmartStaff & Klajner API <span id="count-badge-smartstaff" style="background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px;">...</span>
+    </button>
+    <button id="tab-btn-all" class="btn btn-sm" onclick="switchConvCategory('all')" style="padding: 6px 14px; font-weight: 500;">
+      Wszystkie sesje <span id="count-badge-all" style="background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px;">...</span>
+    </button>
+  </div>
+
+  <!-- SmartStaff Subfilters (visible when smartstaff tab active) -->
+  <div id="smartstaff-subfilters" style="display: none; gap: 8px; align-items: center; margin-bottom: 12px; background: rgba(56, 139, 253, 0.08); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(56, 139, 253, 0.2); flex-wrap: wrap;">
+    <span style="font-size: 12px; color: #58a6ff; font-weight: 600;">Filtr botów API:</span>
+    <button id="subfilter-btn-smartstaff" class="btn btn-sm btn-primary" onclick="switchSmartstaffSubfilter('smartstaff')" style="padding: 3px 10px; font-size: 11px;">Wszystkie boty</button>
+    <button id="subfilter-btn-pawel" class="btn btn-sm" onclick="switchSmartstaffSubfilter('pawel')" style="padding: 3px 10px; font-size: 11px;">👑 Tylko Paweł (Kinguin / Klajner)</button>
+    <button id="subfilter-btn-other" class="btn btn-sm" onclick="switchSmartstaffSubfilter('smartstaff_other')" style="padding: 3px 10px; font-size: 11px;">🤖 Pozostali agenci SmartStaff</button>
+  </div>
+  <!-- Search & Filter Controls for Fleet Conversations -->
+  <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; background: rgba(0,0,0,0.25); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border);">
+    <div style="position: relative; flex: 1; min-width: 260px;">
+      <input type="text" id="conv-search-input" placeholder="🔍 Szukaj rozmowy (UUID, tytuł, katalog roboczy, maszyna)..." 
+             style="width: 100%; background: var(--bg-card); border: 1px solid var(--card-border); color: var(--text-main); padding: 8px 30px 8px 12px; border-radius: 6px; font-size: 13px; outline: none;"
+             oninput="onSearchInput(this.value)">
+      <button id="conv-search-clear" onclick="clearSearch()" title="Wyczyść filtr" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; display: none; font-size: 14px; padding: 2px 6px;">✕</button>
+    </div>
+    <div style="display: flex; gap: 6px; align-items: center;">
+      <span style="font-size: 12px; color: var(--text-muted);">Maszyna:</span>
+      <select id="conv-machine-filter" onchange="onMachineFilterChange(this.value)" style="background: var(--bg-card); border: 1px solid var(--card-border); color: var(--text-main); padding: 7px 10px; border-radius: 6px; font-size: 12px; outline: none; cursor: pointer;">
+        <option value="">Wszystkie maszyny</option>
+        <option value="ferrari">ferrari (lokalny)</option>
+        <option value="ford">ford / home</option>
+        <option value="porsche">porsche</option>
+        <option value="audi">audi</option>
+      </select>
+    </div>
+    <div id="conv-count-badge" style="font-size: 12px; color: var(--text-muted); white-space: nowrap; margin-left: auto;">
+      Ładowanie...
     </div>
   </div>
   <div class="data-table-container">
@@ -365,16 +423,16 @@
       <thead>
         <tr>
           <th>UUID</th>
-          <th>Directory / Workspace</th>
-          <th>Steps</th>
-          <th>Size</th>
-          <th>Modified</th>
-          <th>Title / Preview</th>
-          <th>Actions</th>
+          <th>Katalog / Projekt</th>
+          <th>Kroki</th>
+          <th>Rozmiar</th>
+          <th>Zmodyfikowano</th>
+          <th>Tytuł / Podgląd</th>
+          <th>Akcje</th>
         </tr>
       </thead>
       <tbody id="conversations-table">
-        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading conversations...</td></tr>
+        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Wczytywanie rozmów...</td></tr>
       </tbody>
     </table>
   </div>
@@ -385,17 +443,18 @@
       <div class="modal-terminal-header">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="width: 10px; height: 10px; border-radius: 50%; background: #3fb950;"></span>
-          <strong id="term-modal-title" style="font-family: var(--font-mono); font-size: 14px;">Web Terminal</strong>
+          <strong id="term-modal-title" style="font-family: var(--font-mono); font-size: 14px;">Terminal Web</strong>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Select to copy · Right-click or Ctrl+V to paste</span>
-          <button class="btn btn-sm" onclick="copyTerminalSelection()" title="Copy selected text">📋 Copy</button>
-          <button class="btn btn-sm" onclick="pasteToTerminal()" title="Paste from clipboard">📥 Paste</button>
-          <button class="btn btn-sm" onclick="popOutCurrentTerminal()" title="Pop out into separate multi-session window">⧉ Pop out</button>
+          <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Zaznacz aby skopiować · Prawy przycisk myszy lub Ctrl+V aby wkleić</span>
+          <button class="btn btn-sm" onclick="copyTerminalSelection()" title="Kopiuj zaznaczony tekst">📋 Kopiuj</button>
+          <button class="btn btn-sm" onclick="pasteToTerminal()" title="Wklej ze schowka">📥 Wklej</button>
+          <button class="btn btn-sm" onclick="toggleModalFullscreen()" id="btn-modal-fullscreen" title="Przełącz pełny ekran">⛶ Pełny ekran</button>
+          <button class="btn btn-sm" onclick="popOutCurrentTerminal()" title="Otwórz w osobnym oknie">⧉ Osobne okno</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x03')">Ctrl+C</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x04')">Ctrl+D</button>
-          <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
-          <button class="btn btn-sm btn-danger" onclick="closeTerminal()">✕ Close</button>
+          <button class="btn btn-sm" onclick="clearTerminal()">Wyczyść</button>
+          <button class="btn btn-sm btn-danger" onclick="closeTerminal()">✕ Zamknij</button>
         </div>
       </div>
       <div id="terminal-container"></div>
@@ -408,19 +467,19 @@
   <!-- Switch Modal -->
   <div class="modal-overlay" id="switch-modal">
     <div class="modal-content" style="max-width: 500px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 20px;">
-      <h3 style="font-size: 16px; margin-bottom: 14px;">Switch Conversation to Profile</h3>
+      <h3 style="font-size: 16px; margin-bottom: 14px;">Przełącz rozmowę na inny profil</h3>
       <div style="margin-bottom: 12px;">
-        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Conversation UUID</label>
+        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">UUID Rozmowy</label>
         <input id="switch-uuid" type="text" readonly style="width: 100%; padding: 8px; background: #000; color: #fff; border: 1px solid var(--card-border); border-radius: 4px; font-family: var(--font-mono); font-size: 12px;">
       </div>
       <div style="margin-bottom: 16px;">
-        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Target Profile (Sorted by Highest Available Quota)</label>
+        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Profil docelowy (Sortowanie wg najwyższego dostępnego limitu)</label>
         <select id="switch-target" style="width: 100%; padding: 8px; background: #21262d; color: #fff; border: 1px solid var(--card-border); border-radius: 4px; font-size: 13px;"></select>
-        <div style="font-size: 11px; color: #3fb950; margin-top: 5px;">⭐ Best account with highest available quota is sorted at the top and selected by default.</div>
+        <div style="font-size: 11px; color: #3fb950; margin-top: 5px;">⭐ Najlepsze konto z najwyższym dostępnym limitem znajduje się na górze listy i jest domyślnie wybrane.</div>
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button class="btn btn-sm" onclick="closeModal('switch-modal')">Cancel</button>
-        <button class="btn btn-sm btn-primary" onclick="confirmSwitch()">Execute Safe Switch</button>
+        <button class="btn btn-sm" onclick="closeModal('switch-modal')">Anuluj</button>
+        <button class="btn btn-sm btn-primary" onclick="confirmSwitch()">Wykonaj bezpieczne przełączenie</button>
       </div>
     </div>
   </div>
@@ -429,7 +488,7 @@
   <div class="modal-overlay" id="login-modal">
     <div class="modal-content" style="max-width: 520px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 22px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="font-size: 16px; font-weight: 600;" id="login-modal-title">🔑 Log in Profile</h3>
+        <h3 style="font-size: 16px; font-weight: 600;" id="login-modal-title">🔑 Zaloguj profil</h3>
         <button class="btn btn-sm" onclick="closeModal('login-modal')">✕</button>
       </div>
       <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
@@ -452,10 +511,97 @@
 
   <script>
     let profilesData = [];
+    let allConversations = [];
+    let currentSearchQuery = '';
+    let currentMachineFilter = '';
+    let searchDebounceTimer = null;
     let activeWs = null;
     let term = null;
     let fitAddon = null;
     let currentProfileTerminal = null;
+
+    async function copyTextToClipboard(text) {
+      if (!text) return false;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (err) {
+          console.warn('navigator.clipboard.writeText failed, trying fallback:', err);
+        }
+      }
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '-9999px';
+        textArea.style.left = '-9999px';
+        textArea.style.opacity = '0';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.focus({ preventScroll: true });
+        textArea.select();
+        textArea.setSelectionRange(0, textArea.value.length);
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) return true;
+      } catch (err) {
+        console.error('execCommand copy fallback failed:', err);
+      }
+      return false;
+    }
+
+    let currentConvCategory = 'dev';
+    let currentSmartstaffSubfilter = 'smartstaff';
+
+    function switchConvCategory(cat) {
+      currentConvCategory = cat;
+      ['dev', 'smartstaff', 'all'].forEach(c => {
+        const btn = document.getElementById(`tab-btn-${c}`);
+        if (btn) {
+          if (c === cat) {
+            btn.className = 'btn btn-sm btn-primary';
+            btn.style.fontWeight = '600';
+          } else {
+            btn.className = 'btn btn-sm';
+            btn.style.fontWeight = '500';
+          }
+        }
+      });
+
+      const subfiltersEl = document.getElementById('smartstaff-subfilters');
+      if (subfiltersEl) {
+        subfiltersEl.style.display = (cat === 'smartstaff') ? 'flex' : 'none';
+      }
+
+      fetchConversationsServer();
+    }
+
+    function switchSmartstaffSubfilter(sub) {
+      currentSmartstaffSubfilter = sub;
+      ['smartstaff', 'pawel', 'other'].forEach(s => {
+        const btn = document.getElementById(`subfilter-btn-${s}`);
+        if (btn) {
+          if (s === sub || (s === 'other' && sub === 'smartstaff_other')) {
+            btn.className = 'btn btn-sm btn-primary';
+          } else {
+            btn.className = 'btn btn-sm';
+          }
+        }
+      });
+      fetchConversationsServer();
+    }
+
+    function updateCategoryCounts(counts) {
+      const devBadge = document.getElementById('count-badge-dev');
+      if (devBadge) devBadge.innerText = counts.dev || 0;
+
+      const ssBadge = document.getElementById('count-badge-smartstaff');
+      if (ssBadge) ssBadge.innerText = counts.smartstaff || 0;
+
+      const allBadge = document.getElementById('count-badge-all');
+      if (allBadge) allBadge.innerText = counts.total || 0;
+    }
 
     async function fetchData() {
       try {
@@ -470,15 +616,109 @@
           renderEngines(engData.engines || []);
         }
 
-        const resConvs = await fetch('/api/conversations?limit=50');
+        const catParam = currentConvCategory === 'smartstaff' ? currentSmartstaffSubfilter : currentConvCategory;
+        const queryParam = currentSearchQuery ? `&query=${encodeURIComponent(currentSearchQuery)}` : '';
+        const resConvs = await fetch(`/api/conversations?limit=100&category=${catParam}${queryParam}`);
         const cData = await resConvs.json();
-        renderConversations(cData.conversations);
+        allConversations = cData.conversations || [];
+        if (cData.counts) {
+          updateCategoryCounts(cData.counts);
+        }
+        applyConversationsFilter();
 
         const resK = await fetch('/api/klajner');
         const kData = await resK.json();
         renderKlajner(kData);
       } catch (err) {
         console.error('Error fetching data:', err);
+      }
+    }
+
+    function highlightText(text, query) {
+      if (!text || !query) return text || '';
+      const esc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const reg = new RegExp(`(${esc})`, 'gi');
+      return String(text).replace(reg, '<mark style="background: rgba(240, 136, 62, 0.4); color: #fff; padding: 1px 3px; border-radius: 3px;">$1</mark>');
+    }
+
+    function applyConversationsFilter() {
+      let filtered = (allConversations || []).slice();
+      const q = currentSearchQuery.trim().toLowerCase();
+      if (q) {
+        filtered = filtered.filter(c => {
+          const u = (c.uuid || '').toLowerCase();
+          const t = (c.title || '').toLowerCase();
+          const p = (c.preview || '').toLowerCase();
+          const w = (c.workspace || '').toLowerCase();
+          const m = (c.machine || '').toLowerCase();
+          const lbl = (c.agent_label || '').toLowerCase();
+          return u.includes(q) || t.includes(q) || p.includes(q) || w.includes(q) || m.includes(q) || lbl.includes(q);
+        });
+      }
+      if (currentMachineFilter) {
+        filtered = filtered.filter(c => {
+          const m = (c.machine || 'ferrari').toLowerCase();
+          if (currentMachineFilter === 'ford') {
+            return m.includes('ford') || m.includes('home');
+          }
+          return m.includes(currentMachineFilter);
+        });
+      }
+
+      const countBadge = document.getElementById('conv-count-badge');
+      if (countBadge) {
+        if (q || currentMachineFilter) {
+          countBadge.innerHTML = `Znaleziono: <strong style="color: #58a6ff;">${filtered.length}</strong> z ${allConversations.length} rozmów`;
+        } else {
+          countBadge.innerHTML = `Razem: <strong style="color: var(--text-main);">${allConversations.length}</strong> rozmów`;
+        }
+      }
+
+      renderConversations(filtered, q);
+    }
+
+    function onSearchInput(val) {
+      currentSearchQuery = val || '';
+      const clearBtn = document.getElementById('conv-search-clear');
+      if (clearBtn) clearBtn.style.display = currentSearchQuery ? 'block' : 'none';
+      applyConversationsFilter();
+
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        fetchConversationsServer();
+      }, 350);
+    }
+
+    function clearSearch() {
+      const input = document.getElementById('conv-search-input');
+      if (input) input.value = '';
+      currentSearchQuery = '';
+      const clearBtn = document.getElementById('conv-search-clear');
+      if (clearBtn) clearBtn.style.display = 'none';
+      applyConversationsFilter();
+      fetchConversationsServer();
+    }
+
+    function onMachineFilterChange(val) {
+      currentMachineFilter = (val || '').toLowerCase();
+      applyConversationsFilter();
+    }
+
+    async function fetchConversationsServer() {
+      try {
+        const catParam = currentConvCategory === 'smartstaff' ? currentSmartstaffSubfilter : currentConvCategory;
+        const queryParam = currentSearchQuery ? `&query=${encodeURIComponent(currentSearchQuery)}` : '';
+        const res = await fetch(`/api/conversations?limit=150&category=${catParam}${queryParam}`);
+        if (res.ok) {
+          const data = await res.json();
+          allConversations = data.conversations || [];
+          if (data.counts) {
+            updateCategoryCounts(data.counts);
+          }
+          applyConversationsFilter();
+        }
+      } catch (e) {
+        console.warn('Search fetch error', e);
       }
     }
 
@@ -493,21 +733,86 @@
 
         let statusBadge = '';
         if (eng.tmux_active) {
-          statusBadge = `<span class="badge-pill badge-green">LIVE (PID ${eng.pid || '-'})</span>`;
+          statusBadge = `<span class="badge-pill badge-green">AKTYWNY (PID ${eng.pid || '-'})</span>`;
         } else {
-          statusBadge = `<span class="badge-pill badge-yellow">IDLE</span>`;
+          statusBadge = `<span class="badge-pill badge-yellow">BEZCZYNNY</span>`;
         }
 
         let buttons = '';
-        buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${eng.id}')" title="Open ${eng.name} in separate window">⧉ Console</button>`;
-        buttons += `<button class="btn btn-sm" onclick="openTerminal('${eng.id}')" title="Open inline modal console">⌨ Modal</button>`;
+        buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${eng.id}')" title="Otwórz ${eng.name} w osobnym oknie">⧉ Konsola</button>`;
+        buttons += `<button class="btn btn-sm" onclick="openTerminal('${eng.id}')" title="Otwórz w oknie modalnym">⌨ Modal</button>`;
         if (eng.tmux_active) {
-          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${eng.id}')">Stop</button>`;
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${eng.id}')">Zatrzymaj</button>`;
         } else {
-          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${eng.id}')">Start</button>`;
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${eng.id}')">Uruchom</button>`;
         }
 
         const icon = eng.id === 'claude' ? '🤖' : (eng.id === 'codex' ? '⚡' : '💻');
+
+        let quotaHtml = '';
+        if (eng.id === 'claude' && eng.quota) {
+          const q = eng.quota;
+          const fhColor = q.five_hour_pct > 20 ? '#3fb950' : (q.five_hour_pct > 0 ? '#d29922' : '#f85149');
+          const wkColor = q.weekly_pct > 20 ? '#3fb950' : (q.weekly_pct > 0 ? '#d29922' : '#f85149');
+          const fhBarClass = getBarClass(q.five_hour_pct);
+          const wkBarClass = getBarClass(q.weekly_pct);
+
+          quotaHtml = `
+            <div class="quota-box" style="margin-top: 10px;">
+              <div class="quota-row">
+                <span class="quota-label">Limit 5-godzinny Claude</span>
+                <span class="mono-val" style="color: ${fhColor}; font-weight: 600;">${q.five_hour_pct}% dostępne</span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill ${fhBarClass}" style="width: ${q.five_hour_pct}%;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 3px;">
+                <span>Zużyto: ${q.five_hour_used}%</span>
+                <span>Reset: ${q.five_hour_human}</span>
+              </div>
+
+              <div class="quota-row" style="margin-top: 8px;">
+                <span class="quota-label">Limit tygodniowy Claude</span>
+                <span class="mono-val" style="color: ${wkColor}; font-weight: 600;">${q.weekly_pct}% dostępne</span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill ${wkBarClass}" style="width: ${q.weekly_pct}%;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 3px;">
+                <span>Zużyto: ${q.weekly_used}%</span>
+                <span>Reset: ${q.weekly_human}</span>
+              </div>
+
+              ${q.extra_limit > 0 ? `
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px; border-top: 1px dashed var(--card-border); padding-top: 6px;">
+                Dodatkowe środki: <span style="color: #58a6ff; font-weight: 600;">€${q.extra_used} / €${q.extra_limit}</span> (${q.extra_pct}% zużyte)
+              </div>` : ''}
+            </div>
+          `;
+        } else if (eng.id === 'codex' && eng.quota) {
+          const q = eng.quota;
+          quotaHtml = `
+            <div class="quota-box" style="margin-top: 10px;">
+              <div class="quota-row">
+                <span class="quota-label">Dostępność Codex</span>
+                <span class="mono-val" style="color: #3fb950; font-weight: 600;">100% Dostępne</span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill bar-high" style="width: 100%;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 4px;">
+                <span>Poziom: <span style="color: #58a6ff; font-weight: 500;">${q.tier}</span></span>
+                <span><span style="color: #3fb950;">● Aktywny</span></span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                Kontekst: <span class="mono-val" style="color: #79c0ff;">${q.context_window}</span>
+              </div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
+                Polityka: ${q.rate_limit_policy}
+              </div>
+            </div>
+          `;
+        }
 
         card.innerHTML = `
           <div class="profile-card-header">
@@ -518,11 +823,12 @@
             v${eng.version} · ${eng.auth_type}
           </div>
           <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
-            <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Provider: ${eng.provider}</div>
+            <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Dostawca: ${eng.provider}</div>
             ${eng.email ? `<div style="font-size: 11px; color: #58a6ff; margin-top: 2px;">✉ ${eng.email}</div>` : ''}
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${eng.description}</div>
             <div style="font-size: 11px; color: #3fb950; margin-top: 4px;">tmux: ${eng.tmux_session}</div>
           </div>
+          ${quotaHtml}
           <div class="profile-card-actions" style="margin-top: 12px;">
             ${buttons}
           </div>
@@ -532,32 +838,32 @@
     }
 
     async function triggerFleetSync() {
-      showToast('Initiating fleet synchronization across all nodes...');
+      showToast('Rozpoczynanie synchronizacji floty na wszystkich węzłach...');
       try {
         const res = await fetch('/api/fleet/sync', { method: 'POST' });
         const data = await res.json();
         if (data.status === 'started') {
-          showToast('Fleet sync started in background! Sessions from porsche, audi & ford are syncing.');
+          showToast('Synchronizacja floty uruchomiona w tle! Sesje z porsche, audi i ford są pobierane.');
           setTimeout(fetchData, 4000);
           setTimeout(fetchData, 12000);
         } else {
-          showToast('Fleet sync is already running in background.');
+          showToast('Synchronizacja floty już działa w tle.');
         }
       } catch (err) {
-        alert('Failed to trigger fleet sync: ' + err.message);
+        alert('Błąd uruchamiania synchronizacji floty: ' + err.message);
       }
     }
 
     async function syncQuotas() {
       const btn = event.target;
-      btn.innerText = 'Syncing...';
+      btn.innerText = 'Odświeżanie...';
       try {
         await fetch('/api/quota/refresh', { method: 'POST' });
         await fetchData();
       } catch (err) {
         console.error(err);
       } finally {
-        btn.innerText = '⚡ Refresh Limits';
+        btn.innerText = '⚡ Odśwież limity';
       }
     }
 
@@ -587,21 +893,27 @@
 
         let statusBadge = '';
         if (!p.logged_in) {
-          statusBadge = '<span class="badge-pill badge-gray">Not Signed In</span>';
+          statusBadge = '<span class="badge-pill badge-gray">Niezalogowany</span>';
         } else if (q.gemini_effective_pct !== null && q.gemini_effective_pct > 0) {
           usableCount++;
-          statusBadge = `<span class="badge-pill badge-green">Ready (${q.gemini_effective_pct}%)</span>`;
+          statusBadge = `<span class="badge-pill badge-green">Gotowy (${q.gemini_effective_pct}%)</span>`;
         } else if (q.gemini_status === 'Weekly Limit Reached') {
-          statusBadge = `<span class="badge-pill badge-red" title="Weekly limit hit, wait for reset">Weekly Cap (~${q.gemini_wait_human})</span>`;
+          statusBadge = `<span class="badge-pill badge-red" title="Wyczerpano limit tygodniowy, poczekaj na odnowienie">Limit tygodniowy (~${q.gemini_wait_human})</span>`;
         } else if (q.gemini_status === '5h Limit Reached') {
-          statusBadge = `<span class="badge-pill badge-yellow" title="5h rolling cooldown">Cooldown (${q.gemini_wait_human})</span>`;
+          statusBadge = `<span class="badge-pill badge-yellow" title="5-godzinny okres odnowienia">Cooldown (${q.gemini_wait_human})</span>`;
         } else {
-          statusBadge = `<span class="badge-pill badge-gray">${q.gemini_status || 'Authenticated'}</span>`;
+          statusBadge = `<span class="badge-pill badge-gray">${q.gemini_status || 'Zalogowany'}</span>`;
         }
 
-        const sessionBadge = p.tmux_active 
-          ? '<span class="badge-pill badge-blue">tmux: ' + p.tmux_session + '</span>' 
-          : '<span class="badge-pill badge-gray">Idle</span>';
+        const sessions = p.sessions || [];
+        let sessionBadge = '';
+        if (sessions.length > 1) {
+          sessionBadge = `<span class="badge-pill badge-blue" style="font-weight: 600;">${sessions.length} aktywne sesje</span>`;
+        } else if (sessions.length === 1) {
+          sessionBadge = `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`;
+        } else {
+          sessionBadge = '<span class="badge-pill badge-gray">Bezczynny</span>';
+        }
 
         // Format Gemini Effective Usable Quota
         const effPct = q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined ? q.gemini_effective_pct : null;
@@ -609,11 +921,11 @@
         const effFill = effPct !== null ? effPct : 0;
         let effSubText = '';
         if (q.gemini_status === 'Weekly Limit Reached') {
-          effSubText = `<span style="color: #f85149; font-weight: 500;">Exhausted (wait: ${q.gemini_wait_human})</span>`;
+          effSubText = `<span style="color: #f85149; font-weight: 500;">Wyczerpane (oczekiwanie: ${q.gemini_wait_human})</span>`;
         } else if (q.gemini_status === '5h Limit Reached') {
-          effSubText = `<span style="color: #d29922; font-weight: 500;">Cooldown (wait: ${q.gemini_wait_human})</span>`;
+          effSubText = `<span style="color: #d29922; font-weight: 500;">Cooldown (oczekiwanie: ${q.gemini_wait_human})</span>`;
         } else if (effPct !== null && effPct > 0) {
-          effSubText = `<span style="color: #3fb950; font-weight: 500;">Available Now</span>`;
+          effSubText = `<span style="color: #3fb950; font-weight: 500;">Dostępne teraz</span>`;
         }
 
         // Format 5h bucket
@@ -621,14 +933,14 @@
         let g5hReset = '';
         let g5hFill = 0;
         if (q.gemini_5h_disabled) {
-          g5hText = 'Disabled';
-          g5hReset = '<span style="color: #f85149; font-size: 11px;">(weekly pool empty)</span>';
+          g5hText = 'Zablokowane';
+          g5hReset = '<span style="color: #f85149; font-size: 11px;">(pula tygodniowa wyczerpana)</span>';
           g5hFill = 0;
         } else if (q.gemini_5h_pct !== null && q.gemini_5h_pct !== undefined) {
           g5hText = `${q.gemini_5h_pct}%`;
           g5hFill = q.gemini_5h_pct;
           if (q.gemini_5h_human && q.gemini_5h_human !== '-') {
-            g5hReset = `(reset in ${q.gemini_5h_human})`;
+            g5hReset = `(odnowienie za ${q.gemini_5h_human})`;
           }
         }
 
@@ -640,7 +952,7 @@
           gWText = `${q.gemini_weekly_pct}%`;
           gWFill = q.gemini_weekly_pct;
           if (q.gemini_weekly_human && q.gemini_weekly_human !== '-') {
-            gWReset = `(reset in ${q.gemini_weekly_human})`;
+            gWReset = `(odnowienie za ${q.gemini_weekly_human})`;
           }
         }
 
@@ -652,7 +964,7 @@
           cWText = `${q.claude_weekly_pct}%`;
           cWFill = q.claude_weekly_pct;
           if (q.claude_weekly_human && q.claude_weekly_human !== '-') {
-            cWReset = `(reset in ${q.claude_weekly_human})`;
+            cWReset = `(odnowienie za ${q.claude_weekly_human})`;
           }
         }
 
@@ -662,7 +974,7 @@
             <div class="quota-box">
               <div class="quota-row" style="margin-bottom: 3px;">
                 <span class="quota-label" style="font-weight: 600; color: #f0f6fc;">
-                  Usable Gemini: <strong style="color: ${effPct > 50 ? '#3fb950' : (effPct > 20 ? '#d29922' : '#f85149')};">${effPctText}</strong>
+                  Dostępne Gemini: <strong style="color: ${effPct > 50 ? '#3fb950' : (effPct > 20 ? '#d29922' : '#f85149')};">${effPctText}</strong>
                 </span>
                 <span style="font-size: 11px;">${effSubText}</span>
               </div>
@@ -671,21 +983,21 @@
               </div>
 
               <div class="quota-row">
-                <span class="quota-label">5-Hour Window: <strong>${g5hText}</strong> ${g5hReset}</span>
+                <span class="quota-label">Okno 5-godzinne: <strong>${g5hText}</strong> ${g5hReset}</span>
               </div>
               <div class="quota-bar-bg">
                 <div class="quota-bar-fill ${getBarClass(q.gemini_5h_disabled ? 0 : q.gemini_5h_pct)}" style="width: ${g5hFill}%;"></div>
               </div>
 
               <div class="quota-row" style="margin-top: 6px;">
-                <span class="quota-label">Weekly Pool: <strong>${gWText}</strong> ${gWReset}</span>
+                <span class="quota-label">Pula tygodniowa: <strong>${gWText}</strong> ${gWReset}</span>
               </div>
               <div class="quota-bar-bg">
                 <div class="quota-bar-fill ${getBarClass(q.gemini_weekly_pct)}" style="width: ${gWFill}%;"></div>
               </div>
 
               <div class="quota-row" style="margin-top: 6px;">
-                <span class="quota-label">Claude/GPT Weekly: <strong>${cWText}</strong> ${cWReset}</span>
+                <span class="quota-label">Tygodniowo Claude/GPT: <strong>${cWText}</strong> ${cWReset}</span>
               </div>
               <div class="quota-bar-bg">
                 <div class="quota-bar-fill ${getBarClass(q.claude_weekly_pct)}" style="width: ${cWFill}%;"></div>
@@ -693,35 +1005,76 @@
             </div>
           `;
         } else {
-          quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Sign in to view real-time quota</div>`;
+          quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Zaloguj się, aby wyświetlić limity na żywo</div>`;
         }
 
         let buttons = '';
         if (p.logged_in) {
-          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Open in separate multi-session window">⧉ Console</button>`;
-          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')" title="Open inline modal console">⌨ Modal</button>`;
-          if (p.tmux_active) {
-            buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')">Stop</button>`;
+          if (sessions.length === 0) {
+            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
+            buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz puste okno konsoli">⧉ Okno</button>`;
+            buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
+          } else if (sessions.length === 1) {
+            const s0 = sessions[0];
+            buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}', '${s0.conversation_uuid || ''}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
+            buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}', '${s0.conversation_uuid || ''}')">⌨ Modal</button>`;
+            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')" title="Rozpocznij kolejną równoległą rozmowę">+ Nowa</button>`;
+            buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
           } else {
-            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">Start</button>`;
+            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')" title="Uruchom kolejną równoległą rozmowę">+ Nowa rozmowa</button>`;
+            buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')" title="Zatrzymaj wszystkie sesje tego profilu">Zatrzymaj wszystko (${sessions.length})</button>`;
           }
-          buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Logout and clear credentials">Logout</button>`;
+          buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Wyloguj i usuń dane autoryzacyjne">Wyloguj</button>`;
         } else {
-          buttons += `<button class="btn btn-sm" onclick="promptLogin('${p.name}')">Login</button>`;
+          buttons += `<button class="btn btn-sm" onclick="promptLogin('${p.name}')">Zaloguj</button>`;
         }
 
         const dupHtml = p.is_duplicate 
-          ? `<div style="font-size: 11px; color: #f85149; font-weight: 600; margin-top: 3px;">⚠️ Duplicate Account (shared with ${p.duplicate_with.join(', ')})</div>` 
+          ? `<div style="font-size: 11px; color: #f85149; font-weight: 600; margin-top: 3px;">⚠️ Zduplikowane konto (współdzielone z ${p.duplicate_with.join(', ')})</div>` 
           : '';
 
         const emailHtml = p.email 
           ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>${dupHtml}` 
-          : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Not signed in</div>`;
+          : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Niezalogowany</div>`;
 
-        const activeShort = p.active_uuid && p.active_uuid.length >= 5 ? '...' + p.active_uuid.slice(-5) : (p.active_uuid || '-');
-        const activeAttr = p.active_uuid 
-          ? `style="font-size: 11px; cursor: pointer; color: #58a6ff;" title="Full UUID: ${p.active_uuid} (Click to copy)" onclick="navigator.clipboard.writeText('${p.active_uuid}'); showToast('Copied UUID: ${p.active_uuid}');"` 
-          : `style="font-size: 11px;"`;
+        let metaHtml = '';
+        if (sessions.length > 1) {
+          metaHtml = `<div style="font-size: 11px; font-weight: 600; color: #8b949e; margin-top: 6px; margin-bottom: 4px;">Aktywne rozmowy (${sessions.length}):</div>`;
+          sessions.forEach((s, idx) => {
+            const sUuidShort = s.conversation_uuid ? '...' + s.conversation_uuid.slice(-5) : (s.conversation_uuid || '-');
+            metaHtml += `
+              <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 6px; padding: 5px 8px; margin-bottom: 5px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #58a6ff;">#${idx+1} ${s.session_name}</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">PID: ${s.pid || '-'}</span>
+                </div>
+                <div style="font-size: 11px; margin-top: 2px;">
+                  UUID: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s.conversation_uuid}'); showToast('Skopiowano UUID: ${s.conversation_uuid}');">${sUuidShort}</span>
+                  ${s.machine ? `<span class="badge-pill badge-purple" style="font-size: 9px; padding: 1px 5px; margin-left: 6px;">🖥️ ${s.machine}</span>` : ''}
+                </div>
+                ${s.directory ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.directory}">📁 ${s.directory}</div>` : ''}
+                <div style="display: flex; gap: 4px; margin-top: 5px;">
+                  <button class="btn btn-sm btn-console" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminalWindow('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⧉ Okno</button>
+                  <button class="btn btn-sm" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminal('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⌨ Modal</button>
+                  <button class="btn btn-sm btn-danger" style="padding: 1px 6px; font-size: 10px;" onclick="stopTarget('${s.session_name}')">✕ Stop</button>
+                </div>
+              </div>
+            `;
+          });
+        } else {
+          const s0 = sessions[0] || {};
+          const activeShort = s0.conversation_uuid && s0.conversation_uuid.length >= 5 ? '...' + s0.conversation_uuid.slice(-5) : (s0.conversation_uuid || '-');
+          const activeAttr = s0.conversation_uuid 
+            ? `style="font-size: 11px; cursor: pointer; color: #58a6ff;" title="Pełny UUID: ${s0.conversation_uuid} (Kliknij, aby skopiować)" onclick="copyTextToClipboard('${s0.conversation_uuid}'); showToast('Skopiowano UUID: ${s0.conversation_uuid}');"` 
+            : `style="font-size: 11px;"`;
+
+          metaHtml = `
+            <div>PID: <span class="mono-val">${s0.pid || '-'}</span></div>
+            <div>Aktywne UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
+            ${s0.machine ? `<div style="margin-top: 3px;">Maszyna: <span class="badge-pill badge-purple" style="font-size: 10px; padding: 2px 7px;">🖥️ ${s0.machine}</span></div>` : ''}
+            ${s0.directory ? `<div style="margin-top: 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s0.directory}">Katalog: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s0.directory}'); showToast('Skopiowano ścieżkę katalogu!');">📁 ${s0.directory}</span></div>` : ''}
+          `;
+        }
 
         card.innerHTML = `
           <div>
@@ -737,10 +1090,7 @@
             </div>
             ${quotaHtml}
             <div class="profile-meta">
-              <div>PID: <span class="mono-val">${p.pid || '-'}</span></div>
-              <div>Active UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
-              ${p.active_machine ? `<div style="margin-top: 3px;">Machine: <span class="badge-pill badge-purple" style="font-size: 10px; padding: 2px 7px;">🖥️ ${p.active_machine}</span></div>` : ''}
-              ${p.active_directory ? `<div style="margin-top: 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.active_directory}">Dir: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="navigator.clipboard.writeText('${p.active_directory}'); showToast('Copied directory path!');">📁 ${p.active_directory}</span></div>` : ''}
+              ${metaHtml}
             </div>
           </div>
           <div class="profile-actions">${buttons}</div>
@@ -749,11 +1099,11 @@
       });
 
       document.getElementById('stat-logged-in').innerText = `${loggedCount} / 12`;
-      document.getElementById('stat-active').innerText = `${activeCount} running`;
+      document.getElementById('stat-active').innerText = `${activeCount} aktywnych`;
       const usableEl = document.getElementById('stat-usable');
-      if (usableEl) usableEl.innerText = `${usableCount} ready`;
+      if (usableEl) usableEl.innerText = `${usableCount} gotowych`;
       const usableSubEl = document.getElementById('stat-usable-sub');
-      if (usableSubEl) usableSubEl.innerText = `${loggedCount - usableCount} blocked/cooldown`;
+      if (usableSubEl) usableSubEl.innerText = `${loggedCount - usableCount} wstrzymane/cooldown`;
     }
 
     function showToast(msg) {
@@ -768,26 +1118,134 @@
       }, 2000);
     }
 
-    function renderConversations(convs) {
+    function findBestProfile() {
+      const candidates = (profilesData || [])
+        .filter(p => p.logged_in && p.name !== 'klajner' && p.name !== 'bash')
+        .slice()
+        .sort((a, b) => {
+          const qA = a.quota || {};
+          const qB = b.quota || {};
+          const effA = (qA.gemini_effective_pct !== null && qA.gemini_effective_pct !== undefined) ? qA.gemini_effective_pct : -1;
+          const effB = (qB.gemini_effective_pct !== null && qB.gemini_effective_pct !== undefined) ? qB.gemini_effective_pct : -1;
+          if (effB !== effA) return effB - effA;
+
+          const fhA = (qA.gemini_5h_pct !== null && qA.gemini_5h_pct !== undefined) ? qA.gemini_5h_pct : -1;
+          const fhB = (qB.gemini_5h_pct !== null && qB.gemini_5h_pct !== undefined) ? qB.gemini_5h_pct : -1;
+          if (fhB !== fhA) return fhB - fhA;
+
+          const sessA = (a.sessions || []).length;
+          const sessB = (b.sessions || []).length;
+          if (sessA !== sessB) return sessA - sessB;
+
+          return a.name.localeCompare(b.name);
+        });
+      return candidates.length > 0 ? candidates[0] : null;
+    }
+
+    function findActiveSessionForUuid(uuid) {
+      for (const p of profilesData || []) {
+        if (p.sessions && p.sessions.length > 0) {
+          for (const s of p.sessions) {
+            if (s.conversation_uuid === uuid) {
+              return { profile: p.name, session_name: s.session_name, session: s };
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    async function launchConversationAuto(uuid, mode, workspace) {
+      const best = findBestProfile();
+      if (!best) {
+        alert('Brak dostępnych zalogowanych kont Google!');
+        return;
+      }
+      const ws = (workspace && workspace !== '-') ? workspace : '/srv/projects/agy';
+      const active = findActiveSessionForUuid(uuid);
+
+      const effPct = (best.quota && best.quota.gemini_effective_pct !== null && best.quota.gemini_effective_pct !== undefined)
+        ? `${best.quota.gemini_effective_pct}%`
+        : 'dostępny';
+
+      if (active && active.profile === best.name) {
+        showToast(`Podłączanie do aktywnej sesji ${best.name} (${effPct})`);
+        if (mode === 'window') {
+          openTerminalWindow(best.name, active.session_name, uuid);
+        } else {
+          openTerminal(best.name, active.session_name, uuid);
+        }
+        return;
+      }
+
+      showToast(`Uruchamianie na najpełniejszym koncie: ${best.name} (${effPct})...`);
+
+      try {
+        const res = await fetch('/api/switch', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            target_profile: best.name,
+            uuid: uuid,
+            workspace_dir: ws
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Błąd uruchamiania sesji');
+        }
+        const sessionName = data.session_name || null;
+        if (mode === 'window') {
+          openTerminalWindow(best.name, sessionName, uuid);
+        } else {
+          openTerminal(best.name, sessionName, uuid);
+        }
+        fetchData();
+      } catch (err) {
+        alert(`Nie udało się uruchomić rozmowy: ${err.message}`);
+      }
+    }
+
+    function renderConversations(convs, query) {
       const tbody = document.getElementById('conversations-table');
       tbody.innerHTML = '';
 
+      if (!convs || convs.length === 0) {
+        const qMsg = query ? ` pasujących do zapytania "<strong style="color: #fff;">${query}</strong>"` : '';
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 32px 16px;">
+              Nie znaleziono rozmów${qMsg}.
+              ${query ? '<br><button class="btn btn-sm" style="margin-top: 10px;" onclick="clearSearch()">✕ Wyczyść filtr</button>' : ''}
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
       convs.forEach(c => {
         const tr = document.createElement('tr');
-        const sizeKb = Math.round(c.size_bytes / 1024) + ' KB';
+        const sizeKb = Math.round((c.size_bytes || 0) / 1024) + ' KB';
         const mtime = (c.last_modified || '').substring(0, 19).replace('T', ' ');
         const walBadge = c.has_wal ? '<span class="badge-pill badge-yellow" style="margin-left: 6px;">WAL</span>' : '';
 
+        const highlightedWs = highlightText(c.workspace, query);
         const wsBadge = c.workspace && c.workspace !== '-' 
-          ? `<span class="badge-pill badge-blue" style="font-family: var(--font-mono); font-size: 11px;">${c.workspace}</span>` 
+          ? `<span class="badge-pill badge-blue" style="font-family: var(--font-mono); font-size: 11px;">${highlightedWs}</span>` 
           : '<span style="color: var(--text-muted);">-</span>';
 
         const uuidShort = c.uuid && c.uuid.length >= 5 ? '...' + c.uuid.slice(-5) : c.uuid;
-        const machineBadge = `<span class="badge-pill badge-purple" style="font-size: 11px; font-weight: 600; padding: 2px 7px;" title="Executed on machine">🖥 ${c.machine || 'ferrari'}</span>`;
+        const highlightedUuid = highlightText(uuidShort, query);
+        const machineName = c.machine || 'ferrari';
+        const machineBadge = `<span class="badge-pill badge-purple" style="font-size: 11px; font-weight: 600; padding: 2px 7px;" title="Uruchomiono na maszynie">🖥 ${highlightText(machineName, query)}</span>`;
+        const highlightedTitle = highlightText(c.title, query);
+        const agentBadge = c.agent_label 
+          ? `<span class="badge-pill ${c.category === 'pawel' ? 'badge-yellow' : 'badge-blue'}" style="font-size: 11px; font-weight: 600; margin-right: 6px; padding: 2px 7px;">${c.category === 'pawel' ? '👑' : '🤖'} ${c.agent_label}</span>` 
+          : '';
 
         tr.innerHTML = `
           <td style="font-family: var(--font-mono); font-size: 12px;">
-            <span class="mono-val" style="cursor: pointer; color: #58a6ff;" title="Full UUID: ${c.uuid} (Click to copy)" onclick="navigator.clipboard.writeText('${c.uuid}'); showToast('Copied full UUID: ${c.uuid}');">${uuidShort}</span>
+            <span class="mono-val" style="cursor: pointer; color: #58a6ff;" title="Pełny UUID: ${c.uuid} (Kliknij, aby skopiować)" onclick="copyTextToClipboard('${c.uuid}'); showToast('Skopiowano UUID: ${c.uuid}');">${highlightedUuid}</span>
           </td>
           <td>
             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -798,11 +1256,13 @@
           <td>${c.steps}</td>
           <td>${sizeKb}</td>
           <td>${mtime}</td>
-          <td>${c.title} ${walBadge}</td>
+          <td>${agentBadge}${highlightedTitle} ${walBadge}</td>
           <td>
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${c.workspace || ''}')">Switch to...</button>
-              <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Permanently delete conversation">🗑 Delete</button>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
+              <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
+              <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
+              <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
             </div>
           </td>
         `;
@@ -816,18 +1276,19 @@
 
       if (k.online) {
         statElem.innerHTML = `<span style="color: #3fb950;">ONLINE (${k.response_time_ms} ms)</span>`;
-        let limitText = k.rate_limit_detected ? '<span style="color: var(--accent-red); font-weight: bold;">[⚠️ 429 LIMIT ALERT]</span>' : '[Limits Normal]';
-        subElem.innerHTML = `Default: ${k.default_model || '-'} ${limitText}`;
+        let limitText = k.rate_limit_detected ? '<span style="color: var(--accent-red); font-weight: bold;">[⚠️ ALERT LIMITU 429]</span>' : '[Limity w normie]';
+        subElem.innerHTML = `Domyślny: ${k.default_model || '-'} ${limitText}`;
       } else {
         statElem.innerHTML = `<span style="color: var(--accent-red);">OFFLINE</span>`;
-        subElem.innerHTML = `Checked just now`;
+        subElem.innerHTML = `Sprawdzono przed chwilą`;
       }
     }
 
     // Interactive xterm.js Web Console
-    function openTerminal(profile) {
+    function openTerminal(profile, sessionName = null, uuid = null) {
       currentProfileTerminal = profile;
-      document.getElementById('term-modal-title').innerText = `Interactive Console: ${profile} (tmux: agy-${profile})`;
+      const sessLabel = sessionName || (uuid ? `agy-${profile}-${uuid.substring(0,8)}` : `agy-${profile}`);
+      document.getElementById('term-modal-title').innerText = `Konsola interaktywna: ${profile} (${sessLabel})`;
       document.getElementById('terminal-modal').style.display = 'flex';
 
       const container = document.getElementById('terminal-container');
@@ -882,11 +1343,11 @@
       });
 
       // Auto-copy on select
-      term.onSelectionChange(() => {
+      term.onSelectionChange(async () => {
         if (term.hasSelection()) {
           const sel = term.getSelection();
           if (sel && sel.trim().length > 0) {
-            navigator.clipboard.writeText(sel).catch(() => {});
+            await copyTextToClipboard(sel);
           }
         }
       });
@@ -896,18 +1357,22 @@
         if (event.type !== 'keydown') return true;
         // Ctrl+Shift+C or Ctrl+C when there is an active selection -> Copy
         if (event.ctrlKey && (event.key === 'c' || event.key === 'C') && term.hasSelection()) {
-          navigator.clipboard.writeText(term.getSelection()).then(() => showToast('Copied to clipboard!')).catch(() => {});
+          copyTextToClipboard(term.getSelection()).then(ok => {
+            if (ok) showToast('Skopiowano do schowka!');
+          });
           return false;
         }
         // Ctrl+V or Ctrl+Shift+V -> Paste
         if (event.ctrlKey && (event.key === 'v' || event.key === 'V')) {
-          navigator.clipboard.readText().then(text => {
-            if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-              activeWs.send(text);
-              showToast('Pasted into terminal!');
-            }
-          }).catch(() => {});
-          return false;
+          if (navigator.clipboard && navigator.clipboard.readText) {
+            navigator.clipboard.readText().then(text => {
+              if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+                activeWs.send(text);
+                showToast('Wklejono do terminala!');
+              }
+            }).catch(() => {});
+            return false;
+          }
         }
         return true;
       });
@@ -917,14 +1382,16 @@
         e.preventDefault();
         if (term && term.hasSelection()) {
           const sel = term.getSelection();
-          await navigator.clipboard.writeText(sel).catch(() => {});
-          showToast('Copied selection!');
+          const ok = await copyTextToClipboard(sel);
+          if (ok) showToast('Skopiowano zaznaczenie!');
         } else {
           try {
-            const text = await navigator.clipboard.readText();
-            if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-              activeWs.send(text);
-              showToast('Pasted into terminal!');
+            if (navigator.clipboard && navigator.clipboard.readText) {
+              const text = await navigator.clipboard.readText();
+              if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+                activeWs.send(text);
+                showToast('Wklejono do terminala!');
+              }
             }
           } catch (err) {
             console.warn(err);
@@ -938,13 +1405,17 @@
         const text = (e.clipboardData || window.clipboardData).getData('text');
         if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
           activeWs.send(text);
-          showToast('Pasted into terminal!');
+          showToast('Wklejono do terminala!');
         }
       });
 
       // Connect WebSocket
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${profile}`;
+      let qs = [];
+      if (sessionName) qs.push(`session=${encodeURIComponent(sessionName)}`);
+      if (uuid) qs.push(`uuid=${encodeURIComponent(uuid)}`);
+      const queryStr = qs.length > 0 ? `?${qs.join('&')}` : '';
+      const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${profile}${queryStr}`;
       activeWs = new WebSocket(wsUrl);
       activeWs.binaryType = 'arraybuffer';
 
@@ -954,19 +1425,20 @@
 
       activeWs.onmessage = (ev) => {
         if (ev.data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(ev.data));
+          term.write(new Uint8Array(ev.data), () => term.scrollToBottom());
         } else {
-          term.write(ev.data);
+          term.write(ev.data, () => term.scrollToBottom());
         }
       };
 
       activeWs.onclose = () => {
-        term.write('\r\n\x1b[33m[Session disconnected]\x1b[0m\r\n');
+        term.write('\r\n\x1b[33m[Sesja rozłączona]\x1b[0m\r\n');
       };
 
       term.onData((data) => {
         if (activeWs && activeWs.readyState === WebSocket.OPEN) {
           activeWs.send(data);
+          term.scrollToBottom();
         }
       });
 
@@ -980,10 +1452,14 @@
     async function copyTerminalSelection() {
       if (term && term.hasSelection()) {
         const text = term.getSelection();
-        await navigator.clipboard.writeText(text).catch(() => {});
-        showToast('Copied to clipboard!');
+        const ok = await copyTextToClipboard(text);
+        if (ok) {
+          showToast(`Skopiowano (${text.length} znaków) do schowka!`);
+        } else {
+          showToast('Błąd kopiowania.');
+        }
       } else {
-        showToast('Tip: Select text in console first to copy');
+        showToast('Wskazówka: Zaznacz tekst w terminalu myszką, a następnie kliknij Kopiuj');
       }
     }
 
@@ -992,10 +1468,10 @@
         const text = await navigator.clipboard.readText();
         if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
           activeWs.send(text);
-          showToast('Pasted into terminal!');
+          showToast('Wklejono do terminala!');
         }
       } catch (err) {
-        alert('Clipboard access blocked by browser. You can press Ctrl+V directly to paste.');
+        alert('Dostęp do schowka zablokowany przez przeglądarkę. Użyj bezpośrednio skrótu Ctrl+V.');
       }
     }
 
@@ -1026,22 +1502,41 @@
       fetchData();
     }
 
-    function openTerminalWindow(profile) {
-      const w = 1150;
-      const h = 760;
+    function openTerminalWindow(profile, sessionName = null, uuid = null) {
+      const w = 1180;
+      const h = 780;
       const left = Math.max(0, Math.round((window.screen.width - w) / 2));
       const top = Math.max(0, Math.round((window.screen.height - h) / 2));
+      let url = `/terminal/${profile}`;
+      let qs = [];
+      if (sessionName) qs.push(`session=${encodeURIComponent(sessionName)}`);
+      if (uuid) qs.push(`uuid=${encodeURIComponent(uuid)}`);
+      if (qs.length > 0) url += `?${qs.join('&')}`;
+      const winName = `agy_term_${profile}_${sessionName || 'main'}`.replace(/[^a-zA-Z0-9_]/g, '_');
       const popup = window.open(
-        `/terminal/${profile}`,
-        `agy_term_${profile}`,
-        `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,status=no`
+        url,
+        winName,
+        `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,status=no,toolbar=no,menubar=no,location=no,directories=no`
       );
       if (popup) {
         popup.focus();
-        showToast(`Opened ${profile} in separate console window!`);
+        showToast(`Otwarto ${sessionName || profile} w osobnym oknie!`);
       } else {
-        window.open(`/terminal/${profile}`, '_blank');
+        window.open(url, '_blank');
       }
+    }
+
+    function toggleModalFullscreen() {
+      const content = document.querySelector('.modal-terminal-content');
+      if (!content) return;
+      content.classList.toggle('fullscreen');
+      const btn = document.getElementById('btn-modal-fullscreen');
+      if (content.classList.contains('fullscreen')) {
+        if (btn) btn.innerText = '⤓ Przywróć';
+      } else {
+        if (btn) btn.innerText = '⛶ Pełny ekran';
+      }
+      setTimeout(safeFitModal, 60);
     }
 
     function popOutCurrentTerminal() {
@@ -1061,12 +1556,12 @@
         });
         fetchData();
       } catch (err) {
-        alert('Failed to start profile: ' + err);
+        alert('Nie udało się uruchomić profilu: ' + err);
       }
     }
 
     async function stopTarget(target) {
-      if (!confirm(`Are you sure you want to stop ${target}?`)) return;
+      if (!confirm(`Czy na pewno chcesz zatrzymać sesję ${target}?`)) return;
       try {
         await fetch('/api/stop', {
           method: 'POST',
@@ -1075,13 +1570,13 @@
         });
         fetchData();
       } catch (err) {
-        alert('Failed to stop: ' + err);
+        alert('Nie udało się zatrzymać sesji: ' + err);
       }
     }
 
     function promptLogin(profile) {
       const cmd = `agy-manager login ${profile}`;
-      document.getElementById('login-modal-title').innerText = `🔑 Log in Profile: ${profile}`;
+      document.getElementById('login-modal-title').innerText = `🔑 Zaloguj profil: ${profile}`;
       const input = document.getElementById('login-cmd-input');
       input.value = cmd;
       document.getElementById('login-modal').style.display = 'flex';
@@ -1093,13 +1588,11 @@
 
     async function copyLoginCmd() {
       const input = document.getElementById('login-cmd-input');
-      try {
-        await navigator.clipboard.writeText(input.value);
+      const ok = await copyTextToClipboard(input.value);
+      if (ok) {
         showToast('Skopiowano komendę do schowka!');
-      } catch (err) {
-        input.select();
-        document.execCommand('copy');
-        showToast('Skopiowano komendę do schowka!');
+      } else {
+        showToast('Błąd kopiowania.');
       }
     }
 
@@ -1109,38 +1602,38 @@
     }
 
     async function logoutProfile(profile) {
-      if (!confirm(`Are you sure you want to log out ${profile}?\n\nThis will remove its OAuth credentials and allow logging in a separate, unique Google account.`)) {
+      if (!confirm(`Czy na pewno chcesz wylogować ${profile}?\n\nSpowoduje to usunięcie poświadczeń OAuth i umożliwi zalogowanie nowego, unikalnego konta Google.`)) {
         return;
       }
       try {
         const res = await fetch(`/api/logout/${profile}`, { method: 'POST' });
         if (res.ok) {
-          showToast(`Logged out ${profile}`);
+          showToast(`Wylogowano ${profile}`);
           fetchData();
         } else {
-          alert('Failed to log out profile');
+          alert('Nie udało się wylogować profilu');
         }
       } catch (e) {
-        alert('Error: ' + e.message);
+        alert('Błąd: ' + e.message);
       }
     }
 
     async function deleteConversation(uuid, title) {
       const shortUuid = uuid.length >= 5 ? '...' + uuid.slice(-5) : uuid;
-      if (!confirm(`Are you sure you want to permanently delete conversation ${shortUuid}?\n\n"${title || 'Untitled'}"\n\nThis will remove the sqlite database, brain artifacts, and all metadata.`)) {
+      if (!confirm(`Czy na pewno chcesz trwale usunąć rozmowę ${shortUuid}?\n\n"${title || 'Bez tytułu'}"\n\nSpowoduje to fizyczne usunięcie bazy sqlite, plików brain oraz usunięcie plików z serwerów floty (audi, porsche, ford).`)) {
         return;
       }
       try {
         const res = await fetch(`/api/conversations/${uuid}`, { method: 'DELETE' });
         const data = await res.json();
         if (res.ok && data.success) {
-          showToast(`Deleted conversation ${shortUuid}`);
+          showToast(`Trwale usunięto rozmowę ${shortUuid}`);
           fetchData();
         } else {
-          alert(`Failed to delete: ${data.detail || 'Unknown error'}`);
+          alert(`Błąd podczas usuwania: ${data.detail || 'Nieznany błąd'}`);
         }
       } catch (err) {
-        alert('Network error: ' + err.message);
+        alert('Błąd sieciowy: ' + err.message);
       }
     }
 
@@ -1181,9 +1674,9 @@
         
         let quotaLabel = '';
         if (q.gemini_effective_pct > 0) {
-          quotaLabel = `🟢 ${eff} Ready`;
+          quotaLabel = `🟢 ${eff} Dostępne`;
         } else if (q.gemini_status === 'Weekly Limit Reached') {
-          quotaLabel = `🔴 0% Weekly Cap (~${q.gemini_wait_human})`;
+          quotaLabel = `🔴 0% Limit tygodniowy (~${q.gemini_wait_human})`;
         } else if (q.gemini_status === '5h Limit Reached') {
           quotaLabel = `🟡 0% Cooldown (${q.gemini_wait_human})`;
         } else {
@@ -1191,9 +1684,9 @@
         }
 
         const emailShort = p.email ? ` [${p.email}]` : '';
-        const sessionState = p.tmux_active ? 'Active' : 'Idle';
-        const bestBadge = idx === 0 && q.gemini_effective_pct > 0 ? ' ⭐ (Recommended)' : '';
-        const dupNote = p.is_duplicate ? ` ⚠️[Shared with ${p.duplicate_with.join(', ')}]` : '';
+        const sessionState = p.tmux_active ? 'Aktywne' : 'Bezczynne';
+        const bestBadge = idx === 0 && q.gemini_effective_pct > 0 ? ' ⭐ (Zalecane)' : '';
+        const dupNote = p.is_duplicate ? ` ⚠️[Współdzielone z ${p.duplicate_with.join(', ')}]` : '';
 
         opt.innerText = `${p.name} — ${quotaLabel} (${sessionState})${emailShort}${dupNote}${bestBadge}`;
         select.appendChild(opt);
@@ -1215,13 +1708,13 @@
         });
         if (!res.ok) {
           const errData = await res.json();
-          throw new Error(errData.detail || 'Switch failed');
+          throw new Error(errData.detail || 'Przełączenie nie powiodło się');
         }
         closeModal('switch-modal');
         fetchData();
-        showToast(`Switched conversation to ${target}!`);
+        showToast(`Przełączono rozmowę na ${target}!`);
       } catch (err) {
-        alert('Error: ' + err.message);
+        alert('Błąd: ' + err.message);
       }
     }
 

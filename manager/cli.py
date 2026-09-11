@@ -37,8 +37,8 @@ def cmd_profiles(args):
             email_display = email
 
         s_info = session_by_profile.get(p)
-        tmux_name = tmux_ops.get_tmux_session_name(p)
-        tmux_active = tmux_name if tmux_name in tmux_sessions else "-"
+        matched_sess = tmux_ops.list_profile_sessions(p)
+        tmux_active = s_info.get("session_name") if (s_info and s_info.get("session_name") in tmux_sessions) else (matched_sess[0] if matched_sess else "-")
         pid_str = str(s_info.get("pid")) if s_info else "-"
         uuid_raw = s_info.get("conversation_uuid") or "-" if s_info else "-"
         uuid_str = f"...{uuid_raw[-5:]}" if len(uuid_raw) >= 5 and uuid_raw != "-" else uuid_raw
@@ -74,8 +74,10 @@ def cmd_models(args):
 
 def cmd_conversations(args):
     limit = args.limit
-    convs = core.list_conversations(limit=limit)
-    print(f"\n=== Shared Conversations (Latest {len(convs)}) ===")
+    search = getattr(args, "search", None)
+    convs = core.list_conversations(limit=limit, search=search)
+    header_extra = f" matching '{search}'" if search else ""
+    print(f"\n=== Shared Conversations (Found {len(convs)}{header_extra}) ===")
     print(f"{'UUID (L5)':<11} {'MACHINE':<12} {'WORKSPACE':<26} {'STEPS':<6} {'SIZE':<10} {'MODIFIED':<20} {'TITLE'}")
     print("-" * 136)
 
@@ -294,8 +296,9 @@ def cmd_switch(args):
 
 def cmd_stop(args):
     target = args.target
-    print(f"Stopping target: {target}...")
-    success = tmux_ops.stop_session(target)
+    force = getattr(args, "force", False)
+    print(f"Stopping target: {target} (force={force})...")
+    success = tmux_ops.stop_session(target, force=force)
     if success:
         print(f"Successfully stopped {target}.")
     else:
@@ -314,17 +317,24 @@ def cmd_attach(args):
 
 def cmd_unlock(args):
     uuid_str = args.uuid
-    only_if_stale = args.only_if_stale
+    only_if_stale = getattr(args, "only_if_stale", False)
+    force = getattr(args, "force", False)
     try:
         if only_if_stale:
-            core.unlock_stale_lock(uuid_str)
+            core.unlock_stale_lock(uuid_str, force=False)
             print(f"Lock for {uuid_str} checked and unlocked if stale.")
         else:
             status = core.get_lock_status(uuid_str)
-            if status.get("pid"):
-                print(f"Refusing to unlock: Process PID {status['pid']} is alive and holding this lock!", file=sys.stderr)
-                sys.exit(1)
-            core.unlock_stale_lock(uuid_str)
+            if status.get("pid") and not force:
+                if status.get("is_hung"):
+                    print(f"Detected hung/defunct process PID {status['pid']} (futex wait). Automatically force-unlocking...")
+                    core.unlock_stale_lock(uuid_str, force=True)
+                    print(f"Successfully terminated hung PID {status['pid']} and unlocked {uuid_str}.")
+                    return
+                else:
+                    print(f"Refusing to unlock: Process PID {status['pid']} is alive and holding this lock! Use --force (-f) to terminate it.", file=sys.stderr)
+                    sys.exit(1)
+            core.unlock_stale_lock(uuid_str, force=force)
             print(f"Unlocked {uuid_str}.")
     except Exception as e:
         print(f"Error unlocking: {e}", file=sys.stderr)
@@ -424,6 +434,7 @@ def main():
     # conversations
     p_convs = subparsers.add_parser("conversations", help="List shared conversations")
     p_convs.add_argument("--limit", type=int, default=30, help="Max conversations to display")
+    p_convs.add_argument("-s", "--search", "--query", dest="search", help="Search by UUID, title, workspace, machine")
 
     # status
     subparsers.add_parser("status", help="Show system status, locks, and Klajner monitor")
@@ -454,6 +465,7 @@ def main():
     # stop
     p_stop = subparsers.add_parser("stop", help="Stop conversation or profile session")
     p_stop.add_argument("target", help="Conversation UUID or profile name")
+    p_stop.add_argument("-f", "--force", action="store_true", help="Force terminate processes with SIGKILL")
 
     # attach
     p_attach = subparsers.add_parser("attach", help="Attach to profile tmux session")
@@ -462,6 +474,7 @@ def main():
     # unlock
     p_unlock = subparsers.add_parser("unlock", help="Unlock a stale conversation lock")
     p_unlock.add_argument("uuid", help="Conversation UUID")
+    p_unlock.add_argument("-f", "--force", action="store_true", help="Force terminate process holding lock (SIGKILL) and clear lock")
     p_unlock.add_argument("--only-if-stale", action="store_true", help="Only unlock if no PID holds the lock")
 
     # delete / rm

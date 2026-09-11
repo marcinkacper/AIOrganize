@@ -1,13 +1,16 @@
 import os
 import sys
+import time
 import pty
 import fcntl
 import termios
 import struct
 import select
 import socket
+import signal
 import asyncio
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
@@ -26,6 +29,8 @@ import manager.monitor_klajner as monitor_klajner
 import manager.db as db
 import manager.quota as quota
 import manager.fleet_sync as fleet_sync
+import uuid
+from manager.pool_router import pool_router, normalize_model, ALLOWED_MODELS
 
 app = FastAPI(title="Antigravity Multi-Profile Manager", version="1.1.0")
 
@@ -69,39 +74,81 @@ class SwitchRequest(BaseModel):
 
 class StopRequest(BaseModel):
     target: str
+    force: bool = False
 
 class UnlockRequest(BaseModel):
     uuid: str
     only_if_stale: bool = True
+    force: bool = False
+
+@app.get("/favicon.ico")
+def favicon_route():
+    return FileResponse("/srv/projects/agy/web/static/favicon.svg", media_type="image/svg+xml")
 
 @app.get("/api/profiles")
 def get_profiles():
     profiles = core.list_all_profiles()
     active = core.get_active_sessions()
-    tmux_sessions = tmux_ops.list_agy_tmux_sessions()
-    session_by_profile = {s.get("profile"): s for s in active}
     cached_quotas = quota.get_cached_quotas()
     dups = core.get_duplicate_accounts()
-
     conv_machines = core.get_conversation_machines()
     hostname = socket.gethostname() or "ferrari"
+
+    # Group active processes by profile
+    active_by_profile: Dict[str, List[Dict[str, Any]]] = {}
+    for s in active:
+        p_name = s.get("profile")
+        if p_name:
+            active_by_profile.setdefault(p_name, []).append(s)
 
     data = []
     for p in profiles:
         logged_in = core.is_profile_logged_in(p)
-        tmux_name = tmux_ops.get_tmux_session_name(p)
-        is_tmux_active = tmux_name in tmux_sessions
-        s_info = session_by_profile.get(p)
-        pid = s_info.get("pid") if s_info else None
-        active_uuid = s_info.get("conversation_uuid") if s_info else None
-        active_cwd = s_info.get("cwd") if s_info else None
-        
-        active_machine = None
-        if pid or is_tmux_active:
-            active_machine = hostname
-            orig_m = conv_machines.get(active_uuid) if active_uuid else None
+        profile_tmux_sessions = tmux_ops.list_profile_sessions(p)
+
+        # Build list of active session objects for this profile
+        proc_list = active_by_profile.get(p, [])
+        seen_sess_names = set()
+        p_sessions = []
+
+        for pr in proc_list:
+            s_name = pr.get("session_name") or f"agy-{p}"
+            seen_sess_names.add(s_name)
+            u = pr.get("conversation_uuid")
+            m = hostname
+            orig_m = conv_machines.get(u) if u else None
             if orig_m and orig_m not in [hostname, "kacper"]:
-                active_machine = f"{hostname} ({orig_m})"
+                m = f"{hostname} ({orig_m})"
+            
+            p_sessions.append({
+                "session_name": s_name,
+                "pid": pr.get("pid"),
+                "conversation_uuid": u,
+                "directory": pr.get("cwd") or "/srv/projects/agy",
+                "machine": m,
+                "cmdline": pr.get("cmdline")
+            })
+
+        # Add any tmux sessions for this profile not yet in proc_list
+        for ts in profile_tmux_sessions:
+            if ts not in seen_sess_names:
+                p_sessions.append({
+                    "session_name": ts,
+                    "pid": None,
+                    "conversation_uuid": None,
+                    "directory": "/srv/projects/agy",
+                    "machine": hostname,
+                    "cmdline": None
+                })
+                seen_sess_names.add(ts)
+
+        is_tmux_active = len(p_sessions) > 0
+        primary_sess = p_sessions[0] if p_sessions else None
+        pid = primary_sess["pid"] if primary_sess else None
+        active_uuid = primary_sess["conversation_uuid"] if primary_sess else None
+        active_cwd = primary_sess["directory"] if primary_sess else None
+        active_machine = primary_sess["machine"] if primary_sess else None
+        primary_tmux_name = primary_sess["session_name"] if primary_sess else tmux_ops.get_tmux_session_name(p)
 
         q = cached_quotas.get(p, {})
         email = core.get_profile_email(p)
@@ -115,7 +162,8 @@ def get_profiles():
             "duplicate_with": dup_with,
             "logged_in": logged_in,
             "tmux_active": is_tmux_active,
-            "tmux_session": tmux_name,
+            "tmux_session": primary_tmux_name,
+            "sessions": p_sessions,
             "pid": pid,
             "active_uuid": active_uuid,
             "active_machine": active_machine,
@@ -159,9 +207,10 @@ def get_models(profile: str):
     return {"profile": profile, "models": [{"id": m[0], "name": m[1]} for m in models]}
 
 @app.get("/api/conversations")
-def get_conversations(limit: int = 40):
-    convs = core.list_conversations(limit=limit)
-    return {"conversations": convs}
+def get_conversations(limit: int = 60, query: Optional[str] = None, category: Optional[str] = None):
+    convs = core.list_conversations(limit=limit, search=query, category=category)
+    counts = core.get_conversations_stats(search=query)
+    return {"conversations": convs, "counts": counts}
 
 @app.get("/api/klajner")
 def get_klajner():
@@ -219,7 +268,7 @@ def switch_session(req: SwitchRequest, request: Request):
 
 @app.post("/api/stop")
 def stop_session(req: StopRequest):
-    success = tmux_ops.stop_session(req.target)
+    success = tmux_ops.stop_session(req.target, force=req.force)
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to stop {req.target}")
     return {"success": True, "target": req.target}
@@ -235,12 +284,15 @@ def logout_profile_api(profile: str):
 def unlock_lock(req: UnlockRequest):
     try:
         if req.only_if_stale:
-            core.unlock_stale_lock(req.uuid)
+            core.unlock_stale_lock(req.uuid, force=False)
         else:
             status = core.get_lock_status(req.uuid)
-            if status.get("pid"):
-                raise RuntimeError(f"Lock active with live PID {status['pid']}")
-            core.unlock_stale_lock(req.uuid)
+            if status.get("pid") and not req.force:
+                if status.get("is_hung"):
+                    core.unlock_stale_lock(req.uuid, force=True)
+                    return {"success": True, "uuid": req.uuid, "hung_killed": True}
+                raise RuntimeError(f"Lock active with live PID {status['pid']}. Set force=true to terminate.")
+            core.unlock_stale_lock(req.uuid, force=req.force)
         return {"success": True, "uuid": req.uuid}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -289,32 +341,65 @@ def preview_session(profile: str):
     content = tmux_ops.capture_tmux_pane(sess_name, lines=60)
     return {"profile": profile, "content": content}
 
-@app.api_route("/terminal/{profile}", methods=["GET", "HEAD"])
-def standalone_terminal_view(profile: str):
-    if not core.validate_profile_name(profile):
-        raise HTTPException(status_code=400, detail="Invalid profile name")
+@app.api_route("/terminal/{target}", methods=["GET", "HEAD"])
+def standalone_terminal_view(target: str):
+    if not (core.validate_profile_name(target) or target.startswith("agy-")):
+        raise HTTPException(status_code=400, detail="Invalid profile or session name")
     return FileResponse("/srv/projects/agy/web/static/terminal.html")
 
 # WebSocket Interactive Web Console (PTY + tmux attach)
-@app.websocket("/ws/terminal/{profile}")
-async def websocket_terminal(websocket: WebSocket, profile: str):
+@app.websocket("/ws/terminal/{target}")
+async def websocket_terminal(
+    websocket: WebSocket,
+    target: str,
+    session: Optional[str] = None,
+    uuid: Optional[str] = None
+):
     await websocket.accept()
+
+    # Determine profile and session_name
+    profile = target
+    session_name = session
+
+    if target.startswith("agy-"):
+        session_name = target
+        stripped = target[4:]
+        if stripped in ("bash", "claude", "codex"):
+            profile = stripped
+        elif stripped.startswith("account-"):
+            parts = stripped.split("-")
+            if len(parts) >= 2:
+                profile = f"{parts[0]}-{parts[1]}"
+            else:
+                profile = stripped
+        else:
+            profile = stripped.split("-")[0]
+    elif not session_name:
+        if uuid:
+            session_name = tmux_ops.get_tmux_session_name(target, uuid)
+        else:
+            session_name = tmux_ops.get_tmux_session_name(target)
 
     if not core.validate_profile_name(profile):
         await websocket.close(code=1008)
         return
 
+    # Client machine tracking
     client_ip = websocket.client.host if websocket.client else None
     machine = core.resolve_machine(client_ip)
-    for s in core.get_active_sessions():
-        if s.get("profile") == profile:
-            active_u = s.get("conversation_uuid")
-            if active_u:
-                core.record_conversation_machine(active_u, machine, client_ip or "")
-            break
+    active_uuid = uuid
+    if not active_uuid:
+        for s in core.get_active_sessions():
+            if s.get("session_name") == session_name:
+                active_uuid = s.get("conversation_uuid")
+                break
+            if s.get("profile") == profile and not active_uuid:
+                active_uuid = s.get("conversation_uuid")
+
+    if active_uuid:
+        core.record_conversation_machine(active_uuid, machine, client_ip or "")
 
     home_dir = core.get_profile_home(profile)
-    session_name = tmux_ops.get_tmux_session_name(profile)
 
     # Open PTY
     master_fd, slave_fd = pty.openpty()
@@ -337,7 +422,17 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
     elif profile == "codex":
         run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
     else:
-        run_cmd = ["bash", "-c", f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"]
+        cmd = [f"HOME={home_dir}", f"PATH=/home/kacper/.local/bin:$PATH", core.AGY_BIN]
+        if active_uuid:
+            cmd.extend(["--conversation", active_uuid])
+        run_cmd = ["bash", "-c", " ".join(cmd)]
+
+    def preexec_hook():
+        os.setsid()
+        try:
+            fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+        except Exception:
+            pass
 
     proc = subprocess.Popen(
         ["tmux", "new-session", "-A", "-s", session_name, "-c", "/srv/projects/agy"] + run_cmd,
@@ -345,14 +440,15 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
         stdout=slave_fd,
         stderr=slave_fd,
         close_fds=True,
-        preexec_fn=os.setsid,
+        preexec_fn=preexec_hook,
         env=env
     )
     os.close(slave_fd)
 
-    # Ensure tmux session dynamically adapts window size to client
+    # Ensure tmux session dynamically adapts window size to client and has no distracting status bar
     subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], capture_output=True, check=False)
+    subprocess.run(["tmux", "set-option", "-t", session_name, "status", "off"], capture_output=True, check=False)
 
     loop = asyncio.get_running_loop()
 
@@ -379,10 +475,22 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
                                 cols = int(cmd.get("cols", 120))
                                 rows = int(cmd.get("rows", 32))
                                 ws = struct.pack("HHHH", rows, cols, 0, 0)
-                                fcntl.ioctl(master_fd, termios.TIOCSWINSZ, ws)
+                                try:
+                                    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, ws)
+                                except Exception:
+                                    pass
+                                try:
+                                    os.kill(proc.pid, signal.SIGWINCH)
+                                except Exception:
+                                    pass
                                 # Force tmux window to instantly match client viewport
                                 subprocess.run(
                                     ["tmux", "resize-window", "-t", session_name, "-x", str(cols), "-y", str(rows)],
+                                    capture_output=True,
+                                    check=False
+                                )
+                                subprocess.run(
+                                    ["tmux", "refresh-client", "-S"],
                                     capture_output=True,
                                     check=False
                                 )
@@ -411,6 +519,169 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
         proc.terminate()
     except Exception:
         pass
+
+# -------------------------------------------------------------
+# OPENAI COMPATIBLE AGY COLLECTOR POOL ROUTER
+# -------------------------------------------------------------
+
+class ChatMessage(BaseModel):
+    role: str
+    content: Optional[str] = ""
+    name: Optional[str] = None
+
+class ChatCompletionRequest(BaseModel):
+    model: Optional[str] = None
+    messages: List[ChatMessage]
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = None
+    stream: Optional[bool] = False
+    tools: Optional[List[Dict[str, Any]]] = None
+
+@app.get("/api/collector/status")
+def get_collector_status():
+    """Zwraca stan puli kont kolektora, zdrowe konta, historię i statystyki rotacji."""
+    return pool_router.get_pool_status()
+
+@app.get("/v1/models")
+def list_collector_models():
+    """Zwraca listę obsługiwanych modeli w formacie OpenAI."""
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": m,
+                "object": "model",
+                "created": 1789150000,
+                "owned_by": "google-agy-collector",
+                "permission": [],
+                "root": m,
+                "parent": None
+            }
+            for m in ALLOWED_MODELS
+        ]
+    }
+
+@app.post("/v1/chat/completions")
+async def chat_completions(req: ChatCompletionRequest, request: Request):
+    """
+    OpenAI-kompatybilny endpoint obsługujący żądania ze SmartStaff.
+    Automatycznie wybiera zdrowe konto z puli 12 profili kolektora /srv/projects/agy.
+    """
+    model = normalize_model(req.model)
+    
+    # 1. Assembling prompt from system instructions and conversation history
+    system_parts: List[str] = []
+    dialogue_parts: List[str] = []
+    
+    for msg in req.messages:
+        role = msg.role.lower()
+        content = msg.content or ""
+        if role == "system":
+            system_parts.append(content)
+        elif role == "user":
+            dialogue_parts.append(f"Klient: {content}")
+        elif role == "assistant":
+            dialogue_parts.append(f"Asystent: {content}")
+            
+    prompt_sections: List[str] = []
+    if system_parts:
+        prompt_sections.append("### INSTRUKCJE SYSTEMOWE:\n" + "\n\n".join(system_parts))
+        
+    if req.tools:
+        tools_desc = []
+        for t in req.tools:
+            fn = t.get("function", {})
+            name = fn.get("name")
+            desc = fn.get("description", "")
+            params = json.dumps(fn.get("parameters", {}), ensure_ascii=False)
+            tools_desc.append(f"- Funkcja `{name}`: {desc}\n  Parametry: {params}")
+        prompt_sections.append(
+            "### DOSTĘPNE NARZĘDZIA:\n" + "\n".join(tools_desc) + "\n\n"
+            "Jeśli sytuacja wymaga wywołania narzędzia, na końcu odpowiedzi dodaj dokładnie taki blok:\n"
+            "```tool_call:<nazwa_funkcji>\n"
+            "{\"parametr\": \"wartość\"}\n"
+            "```"
+        )
+        
+    if dialogue_parts:
+        prompt_sections.append("### PRZEBIEG ROZMOWY:\n" + "\n".join(dialogue_parts))
+        
+    prompt_sections.append("### TWOJE ZADANIE:\nOdpowiedz bezpośrednio i precyzyjnie jako Asystent AI zgodnie z powyższymi wytycznymi.")
+    
+    full_prompt = "\n\n".join(prompt_sections)
+    
+    # Extract optional conversation UUID from header or request
+    conv_uuid = request.headers.get("X-Conversation-Id") or request.headers.get("X-Session-Id")
+    
+    try:
+        agy_result = await pool_router.execute_prompt(
+            prompt=full_prompt,
+            model=model,
+            conversation_uuid=conv_uuid,
+            max_retries=3
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Błąd wykonania zapytania w puli AGY: {str(e)}")
+        
+    raw_response = (agy_result.get("response") or "").strip()
+    
+    # Tool call parsing
+    tool_calls = None
+    finish_reason = "stop"
+    tool_match = re.search(r"```tool_call:([a-zA-Z0-9_\-]+)\s*(\{.*?\})\s*```", raw_response, re.DOTALL)
+    if tool_match:
+        try:
+            tool_name = tool_match.group(1)
+            tool_args_str = tool_match.group(2)
+            json.loads(tool_args_str)
+            tool_call_id = f"call_{uuid.uuid4().hex[:8]}"
+            tool_calls = [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": tool_args_str
+                    }
+                }
+            ]
+            raw_response = raw_response.replace(tool_match.group(0), "").strip()
+            finish_reason = "tool_calls"
+        except Exception as err:
+            pass
+            
+    usage_info = agy_result.get("usage") or {}
+    
+    response_payload = {
+        "id": f"chatcmpl-collector-{uuid.uuid4().hex[:12]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": agy_result.get("model_used", model),
+        "account_used": agy_result.get("account_used"),
+        "quota_remaining_pct": agy_result.get("quota_remaining_pct"),
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": raw_response if raw_response else None,
+                    "tool_calls": tool_calls
+                },
+                "finish_reason": finish_reason
+            }
+        ],
+        "usage": {
+            "prompt_tokens": usage_info.get("input_tokens", 0),
+            "completion_tokens": usage_info.get("output_tokens", 0),
+            "total_tokens": usage_info.get("total_tokens", 0)
+        }
+    }
+    
+    resp = JSONResponse(response_payload)
+    resp.headers["X-AGY-Account"] = str(agy_result.get("account_used", ""))
+    resp.headers["X-AGY-Quota"] = f"{agy_result.get('quota_remaining_pct', '')}%"
+    resp.headers["X-AGY-Duration"] = f"{agy_result.get('duration_seconds', 0):.2f}s"
+    return resp
 
 # Mount static frontend
 app.mount("/", StaticFiles(directory="/srv/projects/agy/web/static", html=True), name="static")

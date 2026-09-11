@@ -1,0 +1,15 @@
+{
+  "name": "Antigravity Console",
+  "short_name": "AGY",
+  "display": "standalone",
+  "start_url": "/",
+  "theme_color": "#141922",
+  "background_color": "#000000",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

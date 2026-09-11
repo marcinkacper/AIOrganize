@@ -249,3 +249,18 @@ def sync_all_fleet_nodes() -> List[Dict[str, Any]]:
 
     log_audit("FLEET_SYNC", details=f"Synced fleet sessions. Total detected: {total_synced}")
     return results
+
+def delete_fleet_conversation(uuid_str: str) -> List[Dict[str, Any]]:
+    """
+    Physically removes conversation files (.db, brain/, presence/) from all remote fleet nodes.
+    """
+    results = []
+    clean_cmd = f"rm -rf /home/kacper/.gemini/antigravity-cli/conversations/{uuid_str}* /home/kacper/.gemini/antigravity-cli/brain/{uuid_str} /home/kacper/.gemini/antigravity-cli/presence/{uuid_str}*"
+    for node in FLEET_NODES:
+        name = node["name"]
+        try:
+            res = run_remote_ssh(node, clean_cmd, timeout=8)
+            results.append({"node": name, "success": res.returncode == 0})
+        except Exception as e:
+            results.append({"node": name, "success": False, "error": str(e)})
+    return results

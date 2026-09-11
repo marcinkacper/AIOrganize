@@ -1,12 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity Web Console</title>
+  <meta name="google" content="notranslate">
+  <meta name="format-detection" content="telephone=no">
+  <title>Konsola Web Antigravity</title>
+  <link rel="manifest" href="/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
   <!-- xterm.js CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -77,8 +83,10 @@
       background: #484f58;
     }
     html, body {
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
       background: var(--bg);
       color: var(--text-main);
       font-family: var(--font-sans);
@@ -88,13 +96,13 @@
     }
 
     header {
-      height: 46px;
+      height: 34px;
       background: var(--header-bg);
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 16px;
+      padding: 0 10px;
       flex-shrink: 0;
       user-select: none;
     }
@@ -102,53 +110,99 @@
     .header-left {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
+      min-width: 0;
     }
 
     .status-dot {
-      width: 10px;
-      height: 10px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #3fb950;
-      box-shadow: 0 0 8px rgba(63, 185, 80, 0.6);
+      box-shadow: 0 0 6px rgba(63, 185, 80, 0.6);
+      flex-shrink: 0;
     }
     .status-dot.disconnected {
       background: #f85149;
-      box-shadow: 0 0 8px rgba(248, 81, 73, 0.6);
+      box-shadow: 0 0 6px rgba(248, 81, 73, 0.6);
     }
 
-    .header-title {
-      font-family: var(--font-mono);
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-main);
+    .header-info-stacked {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      line-height: 1.15;
+    }
+
+    .header-info-top {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 5px;
+    }
+
+    .title-profile-text {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.2px;
     }
 
     .header-badge {
-      background: rgba(88, 166, 255, 0.15);
+      background: rgba(88, 166, 255, 0.12);
       color: var(--accent-blue);
-      border: 1px solid rgba(88, 166, 255, 0.3);
-      font-size: 11px;
-      padding: 2px 7px;
-      border-radius: 10px;
+      border: 1px solid rgba(88, 166, 255, 0.25);
+      font-size: 9px;
+      font-family: var(--font-mono);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .title-email-text {
+      font-size: 9px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 220px;
+    }
+
+    .header-quota-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(63, 185, 80, 0.15);
+      color: #3fb950;
+      border: 1px solid rgba(63, 185, 80, 0.3);
+      white-space: nowrap;
+    }
+    .header-quota-badge.yellow {
+      background: rgba(210, 153, 34, 0.15);
+      color: #d29922;
+      border-color: rgba(210, 153, 34, 0.3);
+    }
+    .header-quota-badge.red {
+      background: rgba(248, 81, 73, 0.15);
+      color: #f85149;
+      border-color: rgba(248, 81, 73, 0.3);
     }
 
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 5px;
     }
 
     .btn {
-      background: #21262d;
+      background: #1c2128;
       color: var(--text-main);
       border: 1px solid var(--border);
-      padding: 4px 10px;
-      border-radius: 5px;
-      font-size: 12px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       display: inline-flex;
@@ -156,19 +210,22 @@
       gap: 4px;
       transition: all 0.15s ease;
       text-decoration: none;
+      height: 22px;
+      line-height: 1;
     }
     .btn:hover {
-      background: #30363d;
+      background: #2d333b;
       border-color: #8b949e;
     }
 
     #terminal-container {
-      flex: 1 1 0;
+      flex: 1 1 auto;
       min-height: 0;
       min-width: 0;
       width: 100%;
-      height: 100%;
-      padding: 4px;
+      height: calc(100vh - 34px);
+      max-height: calc(100vh - 34px);
+      padding: 2px 4px 6px 4px;
       background: #000000;
       overflow: hidden;
       box-sizing: border-box;
@@ -190,9 +247,9 @@
       right: 20px;
       background: #238636;
       color: #ffffff;
-      padding: 8px 16px;
-      border-radius: 5px;
-      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 11px;
       font-weight: 600;
       box-shadow: 0 4px 12px rgba(0,0,0,0.6);
       z-index: 9999;
@@ -205,21 +262,26 @@
   <header>
     <div class="header-left">
       <span class="status-dot" id="status-dot"></span>
-      <div class="header-title">
-        <span id="title-profile">Console</span>
-        <span class="header-badge" id="title-tmux">tmux</span>
+      <div class="header-info-stacked">
+        <div class="header-info-top">
+          <span id="title-profile" class="title-profile-text">Console</span>
+          <span class="header-badge" id="title-tmux">tmux</span>
+        </div>
+        <div class="header-info-bottom">
+          <span id="title-email" class="title-email-text">-</span>
+        </div>
       </div>
-      <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);" id="title-email"></span>
+      <span class="header-quota-badge" id="title-quota" title="Dostępne tokeny / limit konta">⚡ --%</span>
     </div>
 
     <div class="header-actions">
-      <span style="font-size: 11px; color: var(--text-muted); margin-right: 4px;">Select to copy · Right-click or Ctrl+V to paste</span>
-      <button class="btn" onclick="copySelection()" title="Copy selected text">📋 Copy</button>
-      <button class="btn" onclick="pasteClipboard()" title="Paste from clipboard">📥 Paste</button>
-      <button class="btn" onclick="sendKey('\x03')">Ctrl+C</button>
-      <button class="btn" onclick="sendKey('\x04')">Ctrl+D</button>
-      <button class="btn" onclick="clearTerm()">Clear</button>
-      <a class="btn" href="/" title="Back to Dashboard">🏠 Dashboard</a>
+      <button class="btn" onclick="copySelection()" title="Kopiuj zaznaczenie (Ctrl+C gdy zaznaczono)">📋 Kopiuj</button>
+      <button class="btn" onclick="pasteClipboard()" title="Wklej ze schowka (Ctrl+V)">📥 Wklej</button>
+      <button class="btn" onclick="sendKey('\x03')" title="Przerwij aktywne polecenie (SIGINT - Ctrl+C)">⛔ Ctrl+C</button>
+      <button class="btn" onclick="sendKey('\x04')" title="Wyślij sygnał końca (Ctrl+D / Exit)">⏻ Ctrl+D</button>
+      <button class="btn" onclick="clearTerm()" title="Wyczyść ekran terminala">🧹</button>
+      <button class="btn" onclick="reloadConsole()" title="Odśwież stronę (Skrót: F5 lub Alt+R)">🔄 Odśwież (Alt+R)</button>
+      <a class="btn" href="/" title="Powrót do panelu głównego">🏠 Panel</a>
     </div>
   </header>
 
@@ -228,29 +290,96 @@
 
   <script>
     let profile = "account-01";
+    let session = "";
+    let uuid = "";
     const pathParts = window.location.pathname.split("/").filter(Boolean);
     if (pathParts.length >= 2 && pathParts[0] === "terminal") {
-      profile = pathParts[1];
-    } else {
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get("profile")) {
-        profile = urlParams.get("profile");
+      const seg = pathParts[1];
+      if (seg.startsWith("agy-")) {
+        session = seg;
+        const stripped = seg.substring(4);
+        profile = stripped.startsWith("account-") ? stripped.split("-").slice(0, 2).join("-") : stripped.split("-")[0];
+      } else {
+        profile = seg;
       }
     }
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("profile")) profile = urlParams.get("profile");
+    if (urlParams.get("session")) session = urlParams.get("session");
+    if (urlParams.get("uuid")) uuid = urlParams.get("uuid");
 
-    document.title = `[${profile}] Antigravity Console`;
+    if (!session) {
+      session = uuid ? `agy-${profile}-${uuid.substring(0, 8)}` : `agy-${profile}`;
+    }
+
+    const shortUuid = uuid ? `...${uuid.slice(-5)}` : "";
+    document.title = `[${profile}] ${session} - Antigravity Console`;
     document.getElementById("title-profile").innerText = profile;
-    document.getElementById("title-tmux").innerText = `agy-${profile}`;
+    document.getElementById("title-tmux").innerText = session;
+    if (shortUuid) {
+      document.getElementById("title-email").innerText = `UUID: ${shortUuid}`;
+    }
 
-    fetch("/api/profiles")
-      .then(r => r.json())
-      .then(d => {
-        const p = d.profiles.find(x => x.name === profile);
-        if (p && p.email) {
-          document.getElementById("title-email").innerText = `✉ ${p.email}`;
-          document.title = `[${profile}] ${p.email} - Console`;
-        }
-      }).catch(() => {});
+    function reloadConsole() {
+      showToast("Odświeżanie sesji...");
+      setTimeout(() => window.location.reload(), 150);
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "F5" || (e.altKey && (e.key === "r" || e.key === "R"))) {
+        e.preventDefault();
+        reloadConsole();
+      }
+    });
+
+    if (profile === "bash") {
+      document.getElementById("title-profile").innerText = "Bash Shell";
+      document.getElementById("title-email").innerText = "kacper@ferrari";
+      const qEl = document.getElementById("title-quota");
+      qEl.innerText = "💻 Server";
+      qEl.className = "header-quota-badge";
+    } else {
+      fetch("/api/profiles")
+        .then(r => r.json())
+        .then(d => {
+          const p = d.profiles.find(x => x.name === profile);
+          if (p) {
+            if (p.email) {
+              const detail = shortUuid ? `${p.email} · ${shortUuid}` : p.email;
+              document.getElementById("title-email").innerText = detail;
+              document.title = `[${profile}] ${detail} - Console`;
+            }
+            if (p.quota) {
+              const qEl = document.getElementById("title-quota");
+              const eff = p.quota.gemini_effective_pct;
+              if (eff !== null && eff !== undefined) {
+                qEl.innerText = `⚡ ${eff}%`;
+                if (eff <= 20) {
+                  qEl.className = "header-quota-badge red";
+                } else if (eff <= 50) {
+                  qEl.className = "header-quota-badge yellow";
+                } else {
+                  qEl.className = "header-quota-badge";
+                }
+                qEl.title = `Dostępny limit: ${eff}% (5h: ${p.quota.gemini_5h_pct || 0}%, tydzień: ${p.quota.gemini_weekly_pct || 0}%)`;
+              }
+            }
+          } else if (profile === "claude" || profile === "codex") {
+            fetch("/api/engines")
+              .then(er => er.json())
+              .then(ed => {
+                const eng = ed.engines.find(e => e.id === profile);
+                if (eng) {
+                  if (eng.email) document.getElementById("title-email").innerText = eng.email;
+                  const qEl = document.getElementById("title-quota");
+                  const qPct = eng.quota?.five_hour_pct ?? eng.quota?.available_pct ?? 100;
+                  qEl.innerText = `⚡ ${qPct}%`;
+                  qEl.title = `Dostępny limit silnika ${eng.name}: ${qPct}%`;
+                }
+              }).catch(() => {});
+          }
+        }).catch(() => {});
+    }
 
     function showToast(msg) {
       const t = document.getElementById("toast");
@@ -308,29 +437,69 @@
     setTimeout(safeFit, 50);
     setTimeout(safeFit, 200);
 
-    term.onSelectionChange(() => {
+    async function copyTextToClipboard(text) {
+      if (!text) return false;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (err) {
+          console.warn("navigator.clipboard.writeText failed, trying fallback:", err);
+        }
+      }
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.top = "-9999px";
+        textArea.style.left = "-9999px";
+        textArea.style.opacity = "0";
+        textArea.setAttribute("readonly", "");
+        document.body.appendChild(textArea);
+        textArea.focus({ preventScroll: true });
+        textArea.select();
+        textArea.setSelectionRange(0, textArea.value.length);
+        const successful = document.execCommand("copy");
+        document.body.removeChild(textArea);
+        if (successful) return true;
+      } catch (err) {
+        console.error("execCommand copy fallback failed:", err);
+      }
+      return false;
+    }
+
+    term.onSelectionChange(async () => {
       if (term.hasSelection()) {
         const s = term.getSelection();
         if (s && s.trim().length > 0) {
-          navigator.clipboard.writeText(s).catch(() => {});
+          await copyTextToClipboard(s);
         }
       }
     });
 
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
+      // F5 or Alt+R to reload
+      if (event.key === "F5" || (event.altKey && (event.key === "r" || event.key === "R"))) {
+        reloadConsole();
+        return false;
+      }
       if (event.ctrlKey && (event.key === "c" || event.key === "C") && term.hasSelection()) {
-        navigator.clipboard.writeText(term.getSelection()).then(() => showToast("Copied to clipboard!")).catch(() => {});
+        copyTextToClipboard(term.getSelection()).then(ok => {
+          if (ok) showToast("Skopiowano do schowka!");
+        });
         return false;
       }
       if (event.ctrlKey && (event.key === "v" || event.key === "V")) {
-        navigator.clipboard.readText().then(text => {
-          if (text && ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(text);
-            showToast("Pasted into terminal!");
-          }
-        }).catch(() => {});
-        return false;
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          navigator.clipboard.readText().then(text => {
+            if (text && ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(text);
+              showToast("Wklejono do terminala!");
+            }
+          }).catch(() => {});
+          return false;
+        }
       }
       return true;
     });
@@ -339,14 +508,16 @@
       e.preventDefault();
       if (term && term.hasSelection()) {
         const s = term.getSelection();
-        await navigator.clipboard.writeText(s).catch(() => {});
-        showToast("Copied selection!");
+        const ok = await copyTextToClipboard(s);
+        if (ok) showToast("Skopiowano zaznaczenie!");
       } else {
         try {
-          const text = await navigator.clipboard.readText();
-          if (text && ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(text);
-            showToast("Pasted into terminal!");
+          if (navigator.clipboard && navigator.clipboard.readText) {
+            const text = await navigator.clipboard.readText();
+            if (text && ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(text);
+              showToast("Wklejono do terminala!");
+            }
           }
         } catch (err) {
           console.warn(err);
@@ -359,12 +530,16 @@
       const text = (e.clipboardData || window.clipboardData).getData("text");
       if (text && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(text);
-        showToast("Pasted into terminal!");
+        showToast("Wklejono do terminala!");
       }
     });
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${profile}`;
+    let qs = [];
+    if (session) qs.push(`session=${encodeURIComponent(session)}`);
+    if (uuid) qs.push(`uuid=${encodeURIComponent(uuid)}`);
+    const queryStr = qs.length > 0 ? `?${qs.join("&")}` : "";
+    const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${profile}${queryStr}`;
     let ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
 
@@ -375,15 +550,15 @@
 
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(ev.data));
+        term.write(new Uint8Array(ev.data), () => term.scrollToBottom());
       } else {
-        term.write(ev.data);
+        term.write(ev.data, () => term.scrollToBottom());
       }
     };
 
     ws.onclose = () => {
       document.getElementById("status-dot").className = "status-dot disconnected";
-      term.write("\r\n\x1b[33m[Session disconnected - refresh page to reconnect]\x1b[0m\r\n");
+      term.write("\r\n\x1b[33m[Sesja rozłączona - odśwież stronę, aby połączyć ponownie]\x1b[0m\r\n");
     };
 
     ws.onerror = (e) => {
@@ -394,6 +569,7 @@
     term.onData((data) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(data);
+        term.scrollToBottom();
       }
     });
 
@@ -407,10 +583,14 @@
     async function copySelection() {
       if (term && term.hasSelection()) {
         const text = term.getSelection();
-        await navigator.clipboard.writeText(text);
-        showToast("Copied to clipboard!");
+        const ok = await copyTextToClipboard(text);
+        if (ok) {
+          showToast(`Skopiowano (${text.length} znaków) do schowka!`);
+        } else {
+          showToast("Błąd kopiowania.");
+        }
       } else {
-        showToast("Tip: Select text in terminal first");
+        showToast("Wskazówka: Zaznacz tekst w terminalu myszką, a następnie kliknij Kopiuj");
       }
     }
 
@@ -419,10 +599,10 @@
         const text = await navigator.clipboard.readText();
         if (text && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(text);
-          showToast("Pasted into terminal!");
+          showToast("Wklejono do terminala!");
         }
       } catch (err) {
-        alert("Clipboard access blocked by browser. You can press Ctrl+V directly to paste.");
+        alert("Dostęp do schowka zablokowany przez przeglądarkę. Użyj bezpośrednio skrótu Ctrl+V.");
       }
     }
 

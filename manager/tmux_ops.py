@@ -10,6 +10,9 @@ try:
         is_profile_logged_in,
         get_lock_status,
         stop_conversation,
+        unlock_stale_lock,
+        kill_process_tree,
+        get_process_descendants,
         AGY_BIN,
         check_concurrent_account_conflict,
     )
@@ -22,13 +25,46 @@ except Exception:
         is_profile_logged_in,
         get_lock_status,
         stop_conversation,
+        unlock_stale_lock,
+        kill_process_tree,
+        get_process_descendants,
         AGY_BIN,
         check_concurrent_account_conflict,
     )
     from db import log_audit
 
-def get_tmux_session_name(profile: str) -> str:
+def get_tmux_session_name(profile: str, conversation_uuid: Optional[str] = None) -> str:
+    if profile in ("bash", "claude", "codex"):
+        return f"agy-{profile}"
+    if conversation_uuid and validate_uuid(conversation_uuid):
+        return f"agy-{profile}-{conversation_uuid[:8]}"
     return f"agy-{profile}"
+
+def list_profile_sessions(profile: str) -> List[str]:
+    """
+    Returns all tmux sessions belonging to a specific profile,
+    e.g. agy-account-02, agy-account-02-28a61098, etc.
+    """
+    all_sess = list_agy_tmux_sessions()
+    prefix = f"agy-{profile}"
+    matched = []
+    for s in all_sess:
+        if s == prefix or s.startswith(f"{prefix}-"):
+            matched.append(s)
+    return matched
+
+def find_available_session_name(profile: str, conversation_uuid: Optional[str] = None) -> str:
+    if profile in ("bash", "claude", "codex"):
+        return f"agy-{profile}"
+    if conversation_uuid and validate_uuid(conversation_uuid):
+        return f"agy-{profile}-{conversation_uuid[:8]}"
+    base = f"agy-{profile}"
+    if not has_tmux_session(base):
+        return base
+    i = 2
+    while has_tmux_session(f"{base}-{i}"):
+        i += 1
+    return f"{base}-{i}"
 
 def has_tmux_session(session_name: str) -> bool:
     res = subprocess.run(
@@ -79,7 +115,7 @@ def start_profile_session(
         conf_p, email = conflict
         raise RuntimeError(
             f"Account conflict: Profile '{profile}' shares Google account '{email}' with currently running '{conf_p}'. "
-            f"Concurrent sessions on the same Google account are blocked to prevent rate-limit exhaustion and session contamination."
+            f"Concurrent sessions across duplicate profile configurations are blocked to prevent quota contamination."
         )
 
     if conversation_uuid:
@@ -91,8 +127,9 @@ def start_profile_session(
             raise RuntimeError(
                 f"Conversation {conversation_uuid} is currently locked by PID {lock_info.get('pid')}!"
             )
-
-    session_name = get_tmux_session_name(profile)
+        session_name = get_tmux_session_name(profile, conversation_uuid)
+    else:
+        session_name = find_available_session_name(profile)
 
     if profile == "bash":
         run_cmd = ["bash", "-l"]
@@ -109,7 +146,7 @@ def start_profile_session(
             cmd.extend(["--model", model])
         run_cmd = ["bash", "-c", " ".join(cmd)]
 
-    # If session already exists, kill it cleanly or replace window
+    # Only kill this specific session if it already exists (do NOT touch other sessions of this profile)
     if has_tmux_session(session_name):
         subprocess.run(["tmux", "kill-session", "-t", session_name], check=False)
 
@@ -123,9 +160,9 @@ def start_profile_session(
     subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], check=False)
 
-    # Configure status bar for clarity
+    # Disable tmux status bar so application gets 100% of terminal rows
     subprocess.run(
-        ["tmux", "set-option", "-t", session_name, "status-left", f"[{profile}] "],
+        ["tmux", "set-option", "-t", session_name, "status", "off"],
         check=False
     )
     title = f"{profile} | {conversation_uuid or 'NEW'}"
@@ -144,6 +181,49 @@ def start_profile_session(
         "conversation_uuid": conversation_uuid,
         "workspace_dir": workspace_dir
     }
+
+def stop_tmux_session_cleanly(session_name: str, force: bool = False) -> bool:
+    """
+    Terminates all child processes inside a tmux session before destroying it,
+    preventing orphaned processes from hanging on futexes/locks in the background.
+    """
+    if not has_tmux_session(session_name):
+        return True
+
+    # 1. Collect all pane PIDs
+    pane_pids: List[int] = []
+    try:
+        tres = subprocess.run(
+            ["tmux", "list-panes", "-t", session_name, "-F", "#{pane_pid}"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if tres.returncode == 0:
+            for line in tres.stdout.splitlines():
+                if line.strip().isdigit():
+                    pane_pids.append(int(line.strip()))
+    except Exception:
+        pass
+
+    # 2. Collect all descendant processes inside each pane
+    target_pids: List[int] = []
+    for pp in pane_pids:
+        target_pids.extend(get_process_descendants(pp))
+
+    # 3. If not forced, try polite interrupt first
+    if not force:
+        subprocess.run(["tmux", "send-keys", "-t", session_name, "C-c"], check=False)
+        time.sleep(0.4)
+
+    # 4. Decisively terminate process trees
+    for p in target_pids:
+        kill_process_tree(p, timeout_sec=2.0, force=force)
+
+    # 5. Destroy the tmux session
+    subprocess.run(["tmux", "kill-session", "-t", session_name], check=False)
+    log_audit("STOP", details=f"Tmux session {session_name} cleanly terminated (force={force})")
+    return True
 
 def switch_conversation(
     target_profile: str,
@@ -164,14 +244,21 @@ def switch_conversation(
         pid = lock_info.get("pid")
         log_audit("SWITCH", profile=target_profile, conversation_uuid=conversation_uuid,
                   details=f"Stopping existing instance (PID {pid})")
-        # Gracefully stop the conversation
-        stop_conversation(conversation_uuid, timeout_sec=10)
+        # Stop existing conversation
+        stop_conversation(conversation_uuid, timeout_sec=4, force=False)
 
-    # Step 2: Ensure lock is released
-    time.sleep(0.5)
+    # Step 2: Ensure lock is released (escalate with force if hung on futex)
+    time.sleep(0.3)
     lock_after = get_lock_status(conversation_uuid)
     if lock_after.get("locked"):
-        raise RuntimeError(f"Failed to release lock on {conversation_uuid} before switch!")
+        log_audit("SWITCH", profile=target_profile, conversation_uuid=conversation_uuid,
+                  details="Lock still held, escalating to forceful stop and unlock")
+        stop_conversation(conversation_uuid, timeout_sec=2, force=True)
+        unlock_stale_lock(conversation_uuid, force=True)
+
+        lock_final = get_lock_status(conversation_uuid)
+        if lock_final.get("locked"):
+            raise RuntimeError(f"Failed to release lock on {conversation_uuid} before switch! Process may be unkillable.")
 
     # Step 3: Start conversation on target profile
     res = start_profile_session(
@@ -183,20 +270,24 @@ def switch_conversation(
     log_audit("SWITCH", profile=target_profile, conversation_uuid=conversation_uuid, details="Switched successfully")
     return res
 
-def stop_session(profile_or_uuid: str) -> bool:
-    # If it's a UUID:
+def stop_session(profile_or_uuid: str, force: bool = False) -> bool:
+    # 1. If it's a UUID:
     if validate_uuid(profile_or_uuid):
-        return stop_conversation(profile_or_uuid)
+        return stop_conversation(profile_or_uuid, force=force)
 
-    # Otherwise treat as profile name
+    # 2. If it's a specific tmux session name (e.g. agy-account-02-28a61098 or agy-account-02)
+    if profile_or_uuid.startswith("agy-") and has_tmux_session(profile_or_uuid):
+        return stop_tmux_session_cleanly(profile_or_uuid, force=force)
+
+    # 3. If it's a profile name (e.g. account-02)
     if validate_profile_name(profile_or_uuid):
-        session_name = get_tmux_session_name(profile_or_uuid)
-        if has_tmux_session(session_name):
-            subprocess.run(["tmux", "send-keys", "-t", session_name, "C-c"], check=False)
-            time.sleep(1)
-            subprocess.run(["tmux", "kill-session", "-t", session_name], check=False)
-            log_audit("STOP", profile=profile_or_uuid, details=f"Tmux session {session_name} killed")
-            return True
+        sessions = list_profile_sessions(profile_or_uuid)
+        stopped_any = False
+        for s in sessions:
+            if stop_tmux_session_cleanly(s, force=force):
+                stopped_any = True
+        return stopped_any or len(sessions) == 0
+
     return False
 
 def create_grid_session(profiles: List[str]) -> str:
