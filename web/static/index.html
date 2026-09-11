@@ -227,6 +227,11 @@
       <div class="stat-value" id="stat-logged-in">- / 12</div>
     </div>
     <div class="stat-card">
+      <div class="stat-label">Usable Gemini Pool</div>
+      <div class="stat-value" style="color: var(--accent-green);" id="stat-usable">- ready</div>
+      <div style="font-size: 11px; color: var(--text-muted);" id="stat-usable-sub">- blocked/cooldown</div>
+    </div>
+    <div class="stat-card">
       <div class="stat-label">Active Sessions</div>
       <div class="stat-value" id="stat-active">-</div>
     </div>
@@ -365,6 +370,7 @@
 
       let loggedCount = 0;
       let activeCount = 0;
+      let usableCount = 0;
 
       profiles.forEach(p => {
         if (p.logged_in) loggedCount++;
@@ -373,47 +379,109 @@
         const card = document.createElement('div');
         card.className = 'profile-card';
 
-        const loginBadge = p.logged_in 
-          ? '<span class="badge-pill badge-green">Authenticated</span>' 
-          : '<span class="badge-pill badge-gray">Not Signed In</span>';
+        const q = p.quota || {};
+
+        let statusBadge = '';
+        if (!p.logged_in) {
+          statusBadge = '<span class="badge-pill badge-gray">Not Signed In</span>';
+        } else if (q.gemini_effective_pct !== null && q.gemini_effective_pct > 0) {
+          usableCount++;
+          statusBadge = `<span class="badge-pill badge-green">Ready (${q.gemini_effective_pct}%)</span>`;
+        } else if (q.gemini_status === 'Weekly Limit Reached') {
+          statusBadge = `<span class="badge-pill badge-red" title="Weekly limit hit, wait for reset">Weekly Cap (~${q.gemini_wait_human})</span>`;
+        } else if (q.gemini_status === '5h Limit Reached') {
+          statusBadge = `<span class="badge-pill badge-yellow" title="5h rolling cooldown">Cooldown (${q.gemini_wait_human})</span>`;
+        } else {
+          statusBadge = `<span class="badge-pill badge-gray">${q.gemini_status || 'Authenticated'}</span>`;
+        }
 
         const sessionBadge = p.tmux_active 
           ? '<span class="badge-pill badge-blue">tmux: ' + p.tmux_session + '</span>' 
           : '<span class="badge-pill badge-gray">Idle</span>';
 
-        // Quotas
-        const q = p.quota || {};
-        const g5h = q.gemini_5h_pct !== null ? `${q.gemini_5h_pct}%` : '-';
-        const g5hFill = q.gemini_5h_pct !== null ? q.gemini_5h_pct : 0;
-        const g5hReset = q.gemini_5h_human !== '-' ? `(reset in ${q.gemini_5h_human})` : '';
+        // Format Gemini Effective Usable Quota
+        const effPct = q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined ? q.gemini_effective_pct : null;
+        const effPctText = effPct !== null ? `${effPct}%` : '-';
+        const effFill = effPct !== null ? effPct : 0;
+        let effSubText = '';
+        if (q.gemini_status === 'Weekly Limit Reached') {
+          effSubText = `<span style="color: #f85149; font-weight: 500;">Exhausted (wait: ${q.gemini_wait_human})</span>`;
+        } else if (q.gemini_status === '5h Limit Reached') {
+          effSubText = `<span style="color: #d29922; font-weight: 500;">Cooldown (wait: ${q.gemini_wait_human})</span>`;
+        } else if (effPct !== null && effPct > 0) {
+          effSubText = `<span style="color: #3fb950; font-weight: 500;">Available Now</span>`;
+        }
 
-        const gW = q.gemini_weekly_pct !== null ? `${q.gemini_weekly_pct}%` : '-';
-        const gWFill = q.gemini_weekly_pct !== null ? q.gemini_weekly_pct : 0;
-        const gWReset = q.gemini_weekly_human !== '-' ? `(reset in ${q.gemini_weekly_human})` : '';
+        // Format 5h bucket
+        let g5hText = '-';
+        let g5hReset = '';
+        let g5hFill = 0;
+        if (q.gemini_5h_disabled) {
+          g5hText = 'Disabled';
+          g5hReset = '<span style="color: #f85149; font-size: 11px;">(weekly pool empty)</span>';
+          g5hFill = 0;
+        } else if (q.gemini_5h_pct !== null && q.gemini_5h_pct !== undefined) {
+          g5hText = `${q.gemini_5h_pct}%`;
+          g5hFill = q.gemini_5h_pct;
+          if (q.gemini_5h_human && q.gemini_5h_human !== '-') {
+            g5hReset = `(reset in ${q.gemini_5h_human})`;
+          }
+        }
 
-        const cW = q.claude_weekly_pct !== null ? `${q.claude_weekly_pct}%` : '-';
-        const cWFill = q.claude_weekly_pct !== null ? q.claude_weekly_pct : 0;
+        // Format Weekly bucket
+        let gWText = '-';
+        let gWReset = '';
+        let gWFill = 0;
+        if (q.gemini_weekly_pct !== null && q.gemini_weekly_pct !== undefined) {
+          gWText = `${q.gemini_weekly_pct}%`;
+          gWFill = q.gemini_weekly_pct;
+          if (q.gemini_weekly_human && q.gemini_weekly_human !== '-') {
+            gWReset = `(reset in ${q.gemini_weekly_human})`;
+          }
+        }
+
+        // Format Claude/GPT
+        let cWText = '-';
+        let cWReset = '';
+        let cWFill = 0;
+        if (q.claude_weekly_pct !== null && q.claude_weekly_pct !== undefined) {
+          cWText = `${q.claude_weekly_pct}%`;
+          cWFill = q.claude_weekly_pct;
+          if (q.claude_weekly_human && q.claude_weekly_human !== '-') {
+            cWReset = `(reset in ${q.claude_weekly_human})`;
+          }
+        }
 
         let quotaHtml = '';
         if (p.logged_in) {
           quotaHtml = `
             <div class="quota-box">
-              <div class="quota-row">
-                <span class="quota-label">Gemini 5-Hour: <strong>${g5h}</strong> ${g5hReset}</span>
+              <div class="quota-row" style="margin-bottom: 3px;">
+                <span class="quota-label" style="font-weight: 600; color: #f0f6fc;">
+                  Usable Gemini: <strong style="color: ${effPct > 50 ? '#3fb950' : (effPct > 20 ? '#d29922' : '#f85149')};">${effPctText}</strong>
+                </span>
+                <span style="font-size: 11px;">${effSubText}</span>
               </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill ${getBarClass(q.gemini_5h_pct)}" style="width: ${g5hFill}%;"></div>
+              <div class="quota-bar-bg" style="height: 7px; margin-bottom: 8px;">
+                <div class="quota-bar-fill ${getBarClass(effPct)}" style="width: ${effFill}%;"></div>
               </div>
 
-              <div class="quota-row" style="margin-top: 8px;">
-                <span class="quota-label">Gemini Weekly: <strong>${gW}</strong> ${gWReset}</span>
+              <div class="quota-row">
+                <span class="quota-label">5-Hour Window: <strong>${g5hText}</strong> ${g5hReset}</span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill ${getBarClass(q.gemini_5h_disabled ? 0 : q.gemini_5h_pct)}" style="width: ${g5hFill}%;"></div>
+              </div>
+
+              <div class="quota-row" style="margin-top: 6px;">
+                <span class="quota-label">Weekly Pool: <strong>${gWText}</strong> ${gWReset}</span>
               </div>
               <div class="quota-bar-bg">
                 <div class="quota-bar-fill ${getBarClass(q.gemini_weekly_pct)}" style="width: ${gWFill}%;"></div>
               </div>
 
-              <div class="quota-row" style="margin-top: 8px;">
-                <span class="quota-label">Claude/GPT Weekly: <strong>${cW}</strong></span>
+              <div class="quota-row" style="margin-top: 6px;">
+                <span class="quota-label">Claude/GPT Weekly: <strong>${cWText}</strong> ${cWReset}</span>
               </div>
               <div class="quota-bar-bg">
                 <div class="quota-bar-fill ${getBarClass(q.claude_weekly_pct)}" style="width: ${cWFill}%;"></div>
@@ -447,11 +515,13 @@
                 <span class="profile-name">${p.name}</span>
                 ${emailHtml}
               </div>
-              ${loginBadge}
+              <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                ${statusBadge}
+                ${sessionBadge}
+              </div>
             </div>
             ${quotaHtml}
             <div class="profile-meta">
-              <div>Session: ${sessionBadge}</div>
               <div>PID: <span class="mono-val">${p.pid || '-'}</span></div>
               <div>Active UUID: <span class="mono-val" style="font-size: 11px;">${p.active_uuid || '-'}</span></div>
             </div>
@@ -463,6 +533,10 @@
 
       document.getElementById('stat-logged-in').innerText = `${loggedCount} / 12`;
       document.getElementById('stat-active').innerText = `${activeCount} running`;
+      const usableEl = document.getElementById('stat-usable');
+      if (usableEl) usableEl.innerText = `${usableCount} ready`;
+      const usableSubEl = document.getElementById('stat-usable-sub');
+      if (usableSubEl) usableSubEl.innerText = `${loggedCount - usableCount} blocked/cooldown`;
     }
 
     function renderConversations(convs) {

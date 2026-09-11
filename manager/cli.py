@@ -308,20 +308,30 @@ def cmd_usage(args):
     else:
         profiles = [p for p in core.list_all_profiles() if core.is_profile_logged_in(p)]
 
-    print(f"\n=== Antigravity Real-Time Quotas & Limits ({len(profiles)} Profiles) ===")
-    print(f"{'PROFILE':<14} {'GEMINI 5H':<14} {'RESET 5H':<12} {'GEMINI WK':<14} {'RESET WK':<12} {'CLAUDE WK':<12}")
-    print("-" * 80)
+    print(f"\n=== Antigravity Real-Time Quotas & Limits ({len(profiles)} Logged In Profiles) ===")
+    print(f"{'PROFILE':<12} {'EMAIL':<30} {'USABLE':<10} {'STATUS':<22} {'WAIT TIME':<16} {'GEMINI 5H':<12} {'GEMINI WK':<12} {'CLAUDE WK':<10}")
+    print("-" * 128)
 
     import quota
     cached = quota.get_cached_quotas()
     for p in profiles:
+        email = core.get_profile_email(p) or "-"
         q = cached.get(p) or quota.fetch_profile_quota(p)
-        g5h = f"{q.get('gemini_5h_pct', '-')}%" if q.get('gemini_5h_pct') is not None else "-"
-        g5h_r = q.get('gemini_5h_human', '-')
+        eff = f"{q.get('gemini_effective_pct', '-')}%" if q.get('gemini_effective_pct') is not None else "-"
+        st = q.get('gemini_status', '-')
+        wait = q.get('gemini_wait_human', '-')
+        
+        if q.get('gemini_5h_disabled'):
+            g5h = "disabled"
+        elif q.get('gemini_5h_pct') is not None:
+            g5h = f"{q.get('gemini_5h_pct')}%"
+        else:
+            g5h = "-"
+            
         gw = f"{q.get('gemini_weekly_pct', '-')}%" if q.get('gemini_weekly_pct') is not None else "-"
-        gw_r = q.get('gemini_weekly_human', '-')
         cw = f"{q.get('claude_weekly_pct', '-')}%" if q.get('claude_weekly_pct') is not None else "-"
-        print(f"{p:<14} {g5h:<14} {g5h_r:<12} {gw:<14} {gw_r:<12} {cw:<12}")
+        
+        print(f"{p:<12} {email[:28]:<30} {eff:<10} {st:<22} {wait:<16} {g5h:<12} {gw:<12} {cw:<10}")
     print()
 
 def main():
