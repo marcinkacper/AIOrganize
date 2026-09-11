@@ -435,10 +435,17 @@
           buttons += `<button class="btn btn-sm" onclick="promptLogin('${p.name}')">Login</button>`;
         }
 
+        const emailHtml = p.email 
+          ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>` 
+          : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Not signed in</div>`;
+
         card.innerHTML = `
           <div>
-            <div class="profile-header">
-              <span class="profile-name">${p.name}</span>
+            <div class="profile-header" style="align-items: flex-start;">
+              <div>
+                <span class="profile-name">${p.name}</span>
+                ${emailHtml}
+              </div>
               ${loginBadge}
             </div>
             ${quotaHtml}

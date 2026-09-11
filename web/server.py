@@ -92,6 +92,7 @@ def get_profiles():
 
         data.append({
             "name": p,
+            "email": core.get_profile_email(p),
             "logged_in": logged_in,
             "tmux_active": is_tmux_active,
             "tmux_session": tmux_name,

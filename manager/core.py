@@ -44,6 +44,25 @@ def is_profile_logged_in(profile: str) -> bool:
     token_path = get_profile_token_path(profile)
     return os.path.isfile(token_path) and os.path.getsize(token_path) > 50
 
+def get_profile_email(profile: str) -> Optional[str]:
+    token_path = get_profile_token_path(profile)
+    if not os.path.isfile(token_path):
+        return None
+    try:
+        import base64
+        import json
+        with open(token_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        id_token = data.get("id_token")
+        if id_token:
+            parts = id_token.split(".")
+            if len(parts) >= 2:
+                payload = json.loads(base64.urlsafe_b64decode(parts[1] + "==").decode("utf-8"))
+                return payload.get("email")
+    except Exception:
+        pass
+    return None
+
 def list_all_profiles() -> List[str]:
     if not os.path.isdir(PROFILES_DIR):
         return []

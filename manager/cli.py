@@ -23,18 +23,19 @@ def cmd_profiles(args):
     session_by_profile = {s.get("profile"): s for s in active_sessions}
 
     print(f"\n=== Antigravity CLI Profiles ({len(profiles)}) ===")
-    print(f"{'PROFILE':<15} {'LOGGED IN':<12} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<38}")
-    print("-" * 92)
+    print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<34} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<38}")
+    print("-" * 124)
 
     for p in profiles:
         is_logged = "YES" if core.is_profile_logged_in(p) else "NO"
+        email = core.get_profile_email(p) or "-"
         s_info = session_by_profile.get(p)
         tmux_name = tmux_ops.get_tmux_session_name(p)
         tmux_active = tmux_name if tmux_name in tmux_sessions else "-"
         pid_str = str(s_info.get("pid")) if s_info else "-"
         uuid_str = s_info.get("conversation_uuid") or "-" if s_info else "-"
 
-        print(f"{p:<15} {is_logged:<12} {tmux_active:<16} {pid_str:<8} {uuid_str:<38}")
+        print(f"{p:<13} {is_logged:<11} {email:<34} {tmux_active:<16} {pid_str:<8} {uuid_str:<38}")
     print()
 
 def cmd_models(args):
