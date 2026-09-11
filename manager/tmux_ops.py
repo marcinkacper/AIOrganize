@@ -11,6 +11,7 @@ try:
         get_lock_status,
         stop_conversation,
         AGY_BIN,
+        check_concurrent_account_conflict,
     )
     from .db import log_audit
 except Exception:
@@ -22,6 +23,7 @@ except Exception:
         get_lock_status,
         stop_conversation,
         AGY_BIN,
+        check_concurrent_account_conflict,
     )
     from db import log_audit
 
@@ -71,6 +73,14 @@ def start_profile_session(
         raise ValueError(f"Invalid profile name: {profile}")
     if not is_profile_logged_in(profile):
         raise RuntimeError(f"Profile {profile} is not logged in!")
+
+    conflict = check_concurrent_account_conflict(profile)
+    if conflict:
+        conf_p, email = conflict
+        raise RuntimeError(
+            f"Account conflict: Profile '{profile}' shares Google account '{email}' with currently running '{conf_p}'. "
+            f"Concurrent sessions on the same Google account are blocked to prevent rate-limit exhaustion and session contamination."
+        )
 
     if conversation_uuid:
         if not validate_uuid(conversation_uuid):

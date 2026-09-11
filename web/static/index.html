@@ -524,12 +524,17 @@
           } else {
             buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">Start</button>`;
           }
+          buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Logout and clear credentials">Logout</button>`;
         } else {
           buttons += `<button class="btn btn-sm" onclick="promptLogin('${p.name}')">Login</button>`;
         }
 
+        const dupHtml = p.is_duplicate 
+          ? `<div style="font-size: 11px; color: #f85149; font-weight: 600; margin-top: 3px;">⚠️ Duplicate Account (shared with ${p.duplicate_with.join(', ')})</div>` 
+          : '';
+
         const emailHtml = p.email 
-          ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>` 
+          ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>${dupHtml}` 
           : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Not signed in</div>`;
 
         const activeShort = p.active_uuid && p.active_uuid.length >= 5 ? '...' + p.active_uuid.slice(-5) : (p.active_uuid || '-');
@@ -834,6 +839,23 @@
       alert(`To login profile ${profile}, run in your terminal:\n\nagy-manager login ${profile}\n\nand paste the code.`);
     }
 
+    async function logoutProfile(profile) {
+      if (!confirm(`Are you sure you want to log out ${profile}?\n\nThis will remove its OAuth credentials and allow logging in a separate, unique Google account.`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/logout/${profile}`, { method: 'POST' });
+        if (res.ok) {
+          showToast(`Logged out ${profile}`);
+          fetchData();
+        } else {
+          alert('Failed to log out profile');
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
     let currentSwitchWs = '/srv/projects/agy';
 
     function openSwitchModal(uuid, workspace) {
@@ -883,8 +905,9 @@
         const emailShort = p.email ? ` [${p.email}]` : '';
         const sessionState = p.tmux_active ? 'Active' : 'Idle';
         const bestBadge = idx === 0 && q.gemini_effective_pct > 0 ? ' ⭐ (Recommended)' : '';
+        const dupNote = p.is_duplicate ? ` ⚠️[Shared with ${p.duplicate_with.join(', ')}]` : '';
 
-        opt.innerText = `${p.name} — ${quotaLabel} (${sessionState})${emailShort}${bestBadge}`;
+        opt.innerText = `${p.name} — ${quotaLabel} (${sessionState})${emailShort}${dupNote}${bestBadge}`;
         select.appendChild(opt);
       });
 

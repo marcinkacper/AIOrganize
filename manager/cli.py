@@ -19,23 +19,37 @@ def cmd_profiles(args):
     profiles = core.list_all_profiles()
     active_sessions = core.get_active_sessions()
     tmux_sessions = tmux_ops.list_agy_tmux_sessions()
+    dups = core.get_duplicate_accounts()
 
     session_by_profile = {s.get("profile"): s for s in active_sessions}
 
     print(f"\n=== Antigravity CLI Profiles ({len(profiles)}) ===")
-    print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<34} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<38}")
+    print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<42} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<20}")
     print("-" * 124)
 
     for p in profiles:
         is_logged = "YES" if core.is_profile_logged_in(p) else "NO"
         email = core.get_profile_email(p) or "-"
+        if email != "-" and email in dups:
+            other_p = [x for x in dups[email] if x != p]
+            email_display = f"{email} ⚠️[DUP:{','.join(other_p)}]"
+        else:
+            email_display = email
+
         s_info = session_by_profile.get(p)
         tmux_name = tmux_ops.get_tmux_session_name(p)
         tmux_active = tmux_name if tmux_name in tmux_sessions else "-"
         pid_str = str(s_info.get("pid")) if s_info else "-"
-        uuid_str = s_info.get("conversation_uuid") or "-" if s_info else "-"
+        uuid_raw = s_info.get("conversation_uuid") or "-" if s_info else "-"
+        uuid_str = f"...{uuid_raw[-5:]}" if len(uuid_raw) >= 5 and uuid_raw != "-" else uuid_raw
 
-        print(f"{p:<13} {is_logged:<11} {email:<34} {tmux_active:<16} {pid_str:<8} {uuid_str:<38}")
+        print(f"{p:<13} {is_logged:<11} {email_display:<42} {tmux_active:<16} {pid_str:<8} {uuid_str:<20}")
+    
+    if dups:
+        print("\n⚠️  OSTRZEŻENIE: Wykryto zduplikowane konta Google na profilach:")
+        for em, plist in dups.items():
+            print(f"   • {em} -> {', '.join(plist)} (współdzielą pulę limitów!)")
+        print("   Wskazówka: Aby wylogować profil i zwolnić miejsce na unikalne konto: agy-manager logout <profile>")
     print()
 
 def cmd_models(args):
@@ -194,11 +208,34 @@ def cmd_login(args):
     subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
 
     if core.is_profile_logged_in(profile):
-        email_match = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", final_out)
-        email_str = f" ({email_match.group(1)})" if email_match else ""
-        print(f"\n✓ Sukces: Profil {profile}{email_str} zostal pomyslnie zalogowany!")
+        email_str = core.get_profile_email(profile) or ""
+        email_disp = f" ({email_str})" if email_str else ""
+        print(f"\n✓ Sukces: Profil {profile}{email_disp} zostal pomyslnie zalogowany!")
+
+        # Verify duplicate account
+        dups = core.get_duplicate_accounts()
+        if email_str and email_str in dups:
+            other_p = [x for x in dups[email_str] if x != profile]
+            print(f"\n⚠️  UWAGA: Wykryto zduplikowane konto Google!")
+            print(f"   Konto '{email_str}' jest już używane na profilu: {', '.join(other_p)}.")
+            print(f"   Profile te dzielą tę samą pulę limitów. Powinniśmy się wystrzegać takich akcji!")
+            print(f"   Aby wylogować i zwolnić profil na inne konto: agy-manager logout {profile}")
     else:
         print(f"\nNie udalo sie zalogowac profilu {profile}. Sprobuj ponownie.")
+
+def cmd_logout(args):
+    profile = args.profile
+    if not core.validate_profile_name(profile):
+        print(f"Error: Invalid profile name '{profile}'", file=sys.stderr)
+        sys.exit(1)
+
+    if not core.is_profile_logged_in(profile):
+        print(f"Profile '{profile}' is not currently logged in.")
+        return
+
+    email = core.get_profile_email(profile) or "Unknown"
+    core.logout_profile(profile)
+    print(f"✓ Profile '{profile}' ({email}) has been logged out successfully. Token and active sessions removed.")
 
 def cmd_start(args):
     profile = args.profile
@@ -365,6 +402,10 @@ def main():
     p_login.add_argument("profile", help="Profile name (e.g. account-03)")
     p_login.add_argument("--tmux", action="store_true", help="Launch in background tmux session")
 
+    # logout
+    p_logout = subparsers.add_parser("logout", help="Log out a profile and remove credentials")
+    p_logout.add_argument("profile", help="Profile name (e.g. account-07)")
+
     # start
     p_start = subparsers.add_parser("start", help="Start a profile in tmux")
     p_start.add_argument("profile", help="Profile name")
@@ -424,6 +465,7 @@ def main():
         "status": cmd_status,
         "sync": cmd_sync,
         "login": cmd_login,
+        "logout": cmd_logout,
         "start": cmd_start,
         "switch": cmd_switch,
         "stop": cmd_stop,

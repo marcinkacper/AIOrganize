@@ -70,6 +70,69 @@ def list_all_profiles() -> List[str]:
     profiles.sort()
     return profiles
 
+def get_duplicate_accounts() -> Dict[str, List[str]]:
+    """
+    Returns mapping of {email: [profile1, profile2]} for emails used across multiple profiles.
+    """
+    email_map: Dict[str, List[str]] = {}
+    for p in list_all_profiles():
+        if is_profile_logged_in(p):
+            email = get_profile_email(p)
+            if email:
+                email_map.setdefault(email, []).append(p)
+    return {email: plist for email, plist in email_map.items() if len(plist) > 1}
+
+def check_concurrent_account_conflict(target_profile: str) -> Optional[Tuple[str, str]]:
+    """
+    Checks if another profile sharing the same Google account email is currently running.
+    Returns (conflicting_profile, email) if a conflict is found, else None.
+    """
+    target_email = get_profile_email(target_profile)
+    if not target_email:
+        return None
+
+    active_sessions = get_active_sessions()
+    for s in active_sessions:
+        active_p = s.get("profile")
+        if active_p and active_p != target_profile and is_profile_logged_in(active_p):
+            other_email = get_profile_email(active_p)
+            if other_email and other_email.lower() == target_email.lower():
+                return (active_p, target_email)
+    return None
+
+def logout_profile(profile: str) -> bool:
+    """
+    Logs out a profile by removing its token and stopping any active session.
+    """
+    if not validate_profile_name(profile):
+        raise ValueError(f"Invalid profile name: {profile}")
+
+    # Stop tmux session if running
+    sess_name = f"agy-{profile}"
+    try:
+        subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False, capture_output=True)
+    except Exception:
+        pass
+
+    token_path = get_profile_token_path(profile)
+    if os.path.isfile(token_path):
+        try:
+            os.remove(token_path)
+        except Exception:
+            pass
+
+    # Clear cached quota
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute("DELETE FROM profile_quotas WHERE profile = ?;", (profile,))
+        conn.close()
+    except Exception:
+        pass
+
+    log_audit("LOGOUT", profile=profile, details="Profile logged out, token removed")
+    return True
+
 def get_lock_status(uuid_str: str) -> Dict[str, Any]:
     """
     Checks kernel flock and active process file descriptors for presence/<uuid>.lock

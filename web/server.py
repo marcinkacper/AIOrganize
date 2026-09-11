@@ -79,6 +79,7 @@ def get_profiles():
     tmux_sessions = tmux_ops.list_agy_tmux_sessions()
     session_by_profile = {s.get("profile"): s for s in active}
     cached_quotas = quota.get_cached_quotas()
+    dups = core.get_duplicate_accounts()
 
     data = []
     for p in profiles:
@@ -89,10 +90,15 @@ def get_profiles():
         pid = s_info.get("pid") if s_info else None
         active_uuid = s_info.get("conversation_uuid") if s_info else None
         q = cached_quotas.get(p, {})
+        email = core.get_profile_email(p)
+        is_dup = bool(email and email in dups)
+        dup_with = [x for x in dups.get(email, []) if x != p] if is_dup else []
 
         data.append({
             "name": p,
-            "email": core.get_profile_email(p),
+            "email": email,
+            "is_duplicate": is_dup,
+            "duplicate_with": dup_with,
             "logged_in": logged_in,
             "tmux_active": is_tmux_active,
             "tmux_session": tmux_name,
@@ -201,6 +207,13 @@ def stop_session(req: StopRequest):
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to stop {req.target}")
     return {"success": True, "target": req.target}
+
+@app.post("/api/logout/{profile}")
+def logout_profile_api(profile: str):
+    if not core.validate_profile_name(profile):
+        raise HTTPException(status_code=400, detail="Invalid profile name")
+    success = core.logout_profile(profile)
+    return {"status": "ok", "profile": profile}
 
 @app.post("/api/unlock")
 def unlock_lock(req: UnlockRequest):
