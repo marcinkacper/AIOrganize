@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import sys
 import os
+import time
+import re
 import argparse
 import subprocess
 # Tabulate is not needed
