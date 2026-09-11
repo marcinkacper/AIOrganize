@@ -102,33 +102,87 @@ def cmd_login(args):
         print(f"Error: Invalid profile name '{profile}'", file=sys.stderr)
         sys.exit(1)
 
+    sess_name = f"agy-login-{profile}"
     home_dir = core.get_profile_home(profile)
-    
-    if args.tmux:
-        sess_name = f"agy-login-{profile}"
-        if tmux_ops.has_tmux_session(sess_name):
-            subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
-        print(f"Starting login session for {profile} in tmux '{sess_name}'...")
-        subprocess.run(
-            ["tmux", "new-session", "-d", "-s", sess_name, f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"],
-            check=True
-        )
-        subprocess.run(["tmux", "send-keys", "-t", sess_name, "Enter"], check=False)
-        if os.getenv("TMUX"):
-            print(f"Switch to session: tmux switch-client -t {sess_name}")
-        else:
-            print(f"Attach to session: tmux attach -t {sess_name}")
-        return
 
-    print(f"\n=== Logging in {profile} directly in current terminal ===")
-    env = os.environ.copy()
-    env["HOME"] = home_dir
-    env["PATH"] = f"/home/kacper/.local/bin:{env.get('PATH', '')}"
-    subprocess.run([core.AGY_BIN], env=env)
+    if tmux_ops.has_tmux_session(sess_name):
+        subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
+
+    print(f"
+Initializing OAuth login for {profile}...")
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", sess_name, f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"],
+        check=True
+    )
+    time.sleep(1)
+    subprocess.run(["tmux", "send-keys", "-t", sess_name, "Enter"], check=True)
+
+    # Poll for clean URL
+    url = None
+    for _ in range(12):
+        time.sleep(0.5)
+        out = tmux_ops.capture_tmux_pane(sess_name, lines=100)
+        if "https://accounts.google.com" in out:
+            lines = out.splitlines()
+            url_parts = []
+            recording = False
+            for line in lines:
+                line_s = line.strip()
+                if "https://accounts.google.com" in line_s:
+                    recording = True
+                if recording:
+                    if "─" in line_s or "After authenticating" in line_s:
+                        if url_parts:
+                            break
+                        else:
+                            continue
+                    url_parts.append(line_s)
+            url = "".join(url_parts).replace(" ", "")
+            break
+
+    if not url:
+        print("Error: Could not retrieve OAuth URL from CLI.", file=sys.stderr)
+        subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
+        sys.exit(1)
+
+    print("
+Otworz ponizszy link w przegladarce (calosc w jednej linii):")
+    print("-" * 80)
+    print(url)
+    print("-" * 80)
+
+    try:
+        auth_code = input("
+Wklej kod autoryzacyjny z przegladarki: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("
+Operacja przerwana.")
+        subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
+        sys.exit(1)
+
+    if not auth_code:
+        print("Nie podano kodu. Logowanie przerwane.")
+        subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
+        sys.exit(1)
+
+    print("Zatwierdzanie kodu autoryzacyjnego...")
+    subprocess.run(["tmux", "send-keys", "-t", sess_name, auth_code, "Enter"], check=True)
+    time.sleep(3)
+
+    # Check pane output
+    final_out = tmux_ops.capture_tmux_pane(sess_name, lines=50)
+    subprocess.run(["tmux", "send-keys", "-t", sess_name, "/exit", "Enter"], check=False)
+    time.sleep(1)
+    subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
+
     if core.is_profile_logged_in(profile):
-        print(f"\n✓ Profile {profile} successfully logged in!")
+        email_match = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", final_out)
+        email_str = f" ({email_match.group(1)})" if email_match else ""
+        print(f"
+✓ Sukces: Profil {profile}{email_str} zostal pomyslnie zalogowany!")
     else:
-        print(f"\nProfile {profile} not yet logged in.")
+        print(f"
+Nie udalo sie zalogowac profilu {profile}. Sprobuj ponownie.")
 
 def cmd_start(args):
     profile = args.profile
