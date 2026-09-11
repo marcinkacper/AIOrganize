@@ -3,16 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity Multi-Profile Manager</title>
+  <title>Antigravity Multi-Profile Manager & Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- xterm.js CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+
   <style>
     :root {
-      --bg: #0d1117;
-      --card-bg: #161b22;
-      --card-border: #30363d;
-      --card-hover: #1f242c;
+      --bg: #0b0f14;
+      --card-bg: #141922;
+      --card-border: #262c36;
+      --card-hover: #1c222c;
       --text-main: #f0f6fc;
       --text-muted: #8b949e;
       --accent-blue: #58a6ff;
@@ -68,15 +73,20 @@
       font-weight: 500;
       cursor: pointer;
       transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .btn:hover { background: #30363d; border-color: #8b949e; }
     .btn-primary { background: var(--accent-green); border-color: rgba(240, 246, 252, 0.1); color: #fff; }
     .btn-primary:hover { background: var(--accent-green-hover); }
+    .btn-console { background: #1f6feb; border-color: #388bfd; color: #fff; }
+    .btn-console:hover { background: #388bfd; }
     .btn-danger { background: rgba(218, 54, 51, 0.2); border-color: rgba(218, 54, 51, 0.4); color: #f85149; }
     .btn-danger:hover { background: var(--accent-red); color: #fff; }
-    .btn-sm { padding: 4px 8px; font-size: 12px; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
 
-    /* Top Stats Bar */
+    /* Top Stats */
     .top-stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -103,8 +113,8 @@
     }
     .profiles-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 18px;
       margin-bottom: 32px;
     }
     .profile-card {
@@ -117,11 +127,29 @@
       justify-content: space-between;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .profile-card:hover { border-color: #58a6ff44; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .profile-card:hover { border-color: #58a6ff66; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
     .profile-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .profile-name { font-size: 15px; font-weight: 600; font-family: var(--font-mono); }
+    .profile-name { font-size: 16px; font-weight: 600; font-family: var(--font-mono); }
+    
+    /* Quota Section */
+    .quota-box {
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      font-size: 12px;
+    }
+    .quota-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .quota-label { color: var(--text-muted); font-size: 11px; }
+    .quota-bar-bg { background: #21262d; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 2px; }
+    .quota-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+    .bar-high { background: #3fb950; }
+    .bar-med { background: #d29922; }
+    .bar-low { background: #f85149; }
+
     .profile-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
-    .profile-meta div { margin-bottom: 4px; }
+    .profile-meta div { margin-bottom: 3px; }
     .mono-val { font-family: var(--font-mono); color: var(--text-main); }
     .profile-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 
@@ -138,59 +166,43 @@
     td { padding: 10px 14px; border-bottom: 1px solid #21262d; }
     tr:hover td { background: var(--card-hover); }
 
-    /* Terminal Modal */
+    /* Full Terminal Modal */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(2px);
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(4px);
       display: none;
       align-items: center;
       justify-content: center;
       z-index: 1000;
     }
-    .modal-content {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
+    .modal-terminal-content {
+      background: #000;
+      border: 1px solid #30363d;
       border-radius: 10px;
-      width: 90%;
-      max-width: 900px;
-      max-height: 85vh;
+      width: 95%;
+      max-width: 1200px;
+      height: 85vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 16px 32px rgba(0,0,0,0.6);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+      overflow: hidden;
     }
-    .modal-header {
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--card-border);
+    .modal-terminal-header {
+      background: #161b22;
+      padding: 10px 16px;
+      border-bottom: 1px solid #30363d;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
-    .modal-body {
-      padding: 16px;
-      overflow-y: auto;
+    #terminal-container {
       flex: 1;
-    }
-    .term-window {
+      width: 100%;
+      height: 100%;
+      padding: 8px;
       background: #000;
-      color: #39ff14;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      padding: 14px;
-      border-radius: 6px;
-      white-space: pre-wrap;
-      overflow-x: auto;
-      height: 480px;
-      overflow-y: auto;
-      border: 1px solid #333;
-    }
-    .modal-footer {
-      padding: 12px 18px;
-      border-top: 1px solid var(--card-border);
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
     }
   </style>
 </head>
@@ -200,15 +212,15 @@
     <div class="header-title">
       <h1>Antigravity Multi-Profile Manager</h1>
       <span class="badge-pill badge-blue">12 Profiles Pool</span>
-      <span class="badge-pill badge-green">Shared Trajectories</span>
+      <span class="badge-pill badge-green">Live Terminal & Quotas</span>
     </div>
     <div style="display: flex; gap: 10px;">
-      <button class="btn btn-primary" id="btn-sync" onclick="syncData()">⚡ Synchronizuj z /home/kacper</button>
+      <button class="btn" onclick="syncQuotas()">⚡ Refresh Limits</button>
       <button class="btn" onclick="fetchData()">↻ Refresh</button>
     </div>
   </header>
 
-  <!-- Top Metrics Bar -->
+  <!-- Top Stats Bar -->
   <div class="top-stats">
     <div class="stat-card">
       <div class="stat-label">Logged In Profiles</div>
@@ -219,6 +231,11 @@
       <div class="stat-value" id="stat-active">-</div>
     </div>
     <div class="stat-card">
+      <div class="stat-label">Limits Polling Interval</div>
+      <div class="stat-value" style="font-size: 16px; color: var(--accent-green);">Every 5 min (Auto)</div>
+      <div style="font-size: 11px; color: var(--text-muted);" id="stat-quota-sync">Last sync: -</div>
+    </div>
+    <div class="stat-card">
       <div class="stat-label">Klajner External Engine</div>
       <div class="stat-value" id="stat-klajner">Checking...</div>
       <div style="font-size: 11px; color: var(--text-muted);" id="stat-klajner-sub">Model: -</div>
@@ -227,11 +244,11 @@
 
   <!-- Profiles Grid -->
   <div class="section-title">
-    <span>Pool Profiles (01 - 12)</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Independent Google OAuth Credentials</span>
+    <span>Profiles & Live Quota Limits</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Independent Google OAuth Accounts · Live WebSocket Terminal</span>
   </div>
   <div class="profiles-grid" id="profiles-container">
-    <div style="color: var(--text-muted); padding: 20px;">Loading profiles...</div>
+    <div style="color: var(--text-muted); padding: 20px;">Loading profiles & quotas...</div>
   </div>
 
   <!-- Shared Conversations -->
@@ -257,42 +274,38 @@
     </table>
   </div>
 
-  <!-- Terminal / Preview Modal -->
-  <div class="modal-overlay" id="preview-modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="modal-title" style="font-size: 15px;">Session Preview</h3>
-        <button class="btn btn-sm" onclick="closeModal('preview-modal')">✕</button>
+  <!-- Full Interactive xterm.js Web Terminal Modal -->
+  <div class="modal-overlay" id="terminal-modal">
+    <div class="modal-terminal-content">
+      <div class="modal-terminal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="width: 10px; height: 10px; border-radius: 50%; background: #3fb950;"></span>
+          <strong id="term-modal-title" style="font-family: var(--font-mono); font-size: 14px;">Web Terminal</strong>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm" onclick="sendTerminalKey('\x03')">Ctrl+C</button>
+          <button class="btn btn-sm" onclick="sendTerminalKey('\x04')">Ctrl+D</button>
+          <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
+          <button class="btn btn-sm btn-danger" onclick="closeTerminal()">✕ Close Console</button>
+        </div>
       </div>
-      <div class="modal-body">
-        <div class="term-window" id="term-output">Loading terminal output...</div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-sm" onclick="refreshPreview()">↻ Refresh Output</button>
-        <button class="btn btn-sm" onclick="closeModal('preview-modal')">Close</button>
-      </div>
+      <div id="terminal-container"></div>
     </div>
   </div>
 
   <!-- Switch Modal -->
   <div class="modal-overlay" id="switch-modal">
-    <div class="modal-content" style="max-width: 500px;">
-      <div class="modal-header">
-        <h3 style="font-size: 15px;">Switch Conversation to Profile</h3>
-        <button class="btn btn-sm" onclick="closeModal('switch-modal')">✕</button>
+    <div class="modal-content" style="max-width: 500px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 14px;">Switch Conversation to Profile</h3>
+      <div style="margin-bottom: 12px;">
+        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Conversation UUID</label>
+        <input id="switch-uuid" type="text" readonly style="width: 100%; padding: 8px; background: #000; color: #fff; border: 1px solid var(--card-border); border-radius: 4px; font-family: var(--font-mono); font-size: 12px;">
       </div>
-      <div class="modal-body">
-        <div style="margin-bottom: 12px;">
-          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Conversation UUID</label>
-          <input id="switch-uuid" type="text" readonly style="width: 100%; padding: 8px; background: #000; color: #fff; border: 1px solid var(--card-border); border-radius: 4px; font-family: var(--font-mono); font-size: 12px;">
-        </div>
-        <div style="margin-bottom: 12px;">
-          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Target Profile</label>
-          <select id="switch-target" style="width: 100%; padding: 8px; background: #21262d; color: #fff; border: 1px solid var(--card-border); border-radius: 4px;">
-          </select>
-        </div>
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Target Profile</label>
+        <select id="switch-target" style="width: 100%; padding: 8px; background: #21262d; color: #fff; border: 1px solid var(--card-border); border-radius: 4px;"></select>
       </div>
-      <div class="modal-footer">
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
         <button class="btn btn-sm" onclick="closeModal('switch-modal')">Cancel</button>
         <button class="btn btn-sm btn-primary" onclick="confirmSwitch()">Execute Safe Switch</button>
       </div>
@@ -300,29 +313,49 @@
   </div>
 
   <script>
-    let currentPreviewProfile = null;
     let profilesData = [];
+    let activeWs = null;
+    let term = null;
+    let fitAddon = null;
+    let currentProfileTerminal = null;
 
     async function fetchData() {
       try {
-        // Fetch profiles
         const resProfiles = await fetch('/api/profiles');
         const pData = await resProfiles.json();
         profilesData = pData.profiles;
         renderProfiles(profilesData);
 
-        // Fetch conversations
         const resConvs = await fetch('/api/conversations?limit=25');
         const cData = await resConvs.json();
         renderConversations(cData.conversations);
 
-        // Fetch klajner
         const resK = await fetch('/api/klajner');
         const kData = await resK.json();
         renderKlajner(kData);
       } catch (err) {
         console.error('Error fetching data:', err);
       }
+    }
+
+    async function syncQuotas() {
+      const btn = event.target;
+      btn.innerText = 'Syncing...';
+      try {
+        await fetch('/api/quota/refresh', { method: 'POST' });
+        await fetchData();
+      } catch (err) {
+        console.error(err);
+      } finally {
+        btn.innerText = '⚡ Refresh Limits';
+      }
+    }
+
+    function getBarClass(pct) {
+      if (pct === null || pct === undefined) return 'bar-high';
+      if (pct > 50) return 'bar-high';
+      if (pct > 20) return 'bar-med';
+      return 'bar-low';
     }
 
     function renderProfiles(profiles) {
@@ -347,14 +380,53 @@
           ? '<span class="badge-pill badge-blue">tmux: ' + p.tmux_session + '</span>' 
           : '<span class="badge-pill badge-gray">Idle</span>';
 
-        const activeUuidText = p.active_uuid 
-          ? `<span class="mono-val" style="color: var(--accent-blue);">${p.active_uuid.substring(0, 16)}...</span>` 
-          : '<span style="color: var(--text-muted);">-</span>';
+        // Quotas
+        const q = p.quota || {};
+        const g5h = q.gemini_5h_pct !== null ? `${q.gemini_5h_pct}%` : '-';
+        const g5hFill = q.gemini_5h_pct !== null ? q.gemini_5h_pct : 0;
+        const g5hReset = q.gemini_5h_human !== '-' ? `(reset in ${q.gemini_5h_human})` : '';
+
+        const gW = q.gemini_weekly_pct !== null ? `${q.gemini_weekly_pct}%` : '-';
+        const gWFill = q.gemini_weekly_pct !== null ? q.gemini_weekly_pct : 0;
+        const gWReset = q.gemini_weekly_human !== '-' ? `(reset in ${q.gemini_weekly_human})` : '';
+
+        const cW = q.claude_weekly_pct !== null ? `${q.claude_weekly_pct}%` : '-';
+        const cWFill = q.claude_weekly_pct !== null ? q.claude_weekly_pct : 0;
+
+        let quotaHtml = '';
+        if (p.logged_in) {
+          quotaHtml = `
+            <div class="quota-box">
+              <div class="quota-row">
+                <span class="quota-label">Gemini 5-Hour: <strong>${g5h}</strong> ${g5hReset}</span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill ${getBarClass(q.gemini_5h_pct)}" style="width: ${g5hFill}%;"></div>
+              </div>
+
+              <div class="quota-row" style="margin-top: 8px;">
+                <span class="quota-label">Gemini Weekly: <strong>${gW}</strong> ${gWReset}</span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill ${getBarClass(q.gemini_weekly_pct)}" style="width: ${gWFill}%;"></div>
+              </div>
+
+              <div class="quota-row" style="margin-top: 8px;">
+                <span class="quota-label">Claude/GPT Weekly: <strong>${cW}</strong></span>
+              </div>
+              <div class="quota-bar-bg">
+                <div class="quota-bar-fill ${getBarClass(q.claude_weekly_pct)}" style="width: ${cWFill}%;"></div>
+              </div>
+            </div>
+          `;
+        } else {
+          quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Sign in to view real-time quota</div>`;
+        }
 
         let buttons = '';
         if (p.logged_in) {
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminal('${p.name}')">⌨ Console</button>`;
           if (p.tmux_active) {
-            buttons += `<button class="btn btn-sm" onclick="openPreview('${p.name}')">Preview</button>`;
             buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')">Stop</button>`;
           } else {
             buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">Start</button>`;
@@ -369,10 +441,11 @@
               <span class="profile-name">${p.name}</span>
               ${loginBadge}
             </div>
+            ${quotaHtml}
             <div class="profile-meta">
               <div>Session: ${sessionBadge}</div>
-              <div>Active UUID: ${activeUuidText}</div>
               <div>PID: <span class="mono-val">${p.pid || '-'}</span></div>
+              <div>Active UUID: <span class="mono-val" style="font-size: 11px;">${p.active_uuid || '-'}</span></div>
             </div>
           </div>
           <div class="profile-actions">${buttons}</div>
@@ -422,6 +495,93 @@
       }
     }
 
+    // Interactive xterm.js Web Console
+    function openTerminal(profile) {
+      currentProfileTerminal = profile;
+      document.getElementById('term-modal-title').innerText = `Interactive Console: ${profile} (tmux: agy-${profile})`;
+      document.getElementById('terminal-modal').style.display = 'flex';
+
+      const container = document.getElementById('terminal-container');
+      container.innerHTML = '';
+
+      term = new Terminal({
+        cursorBlink: true,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 13,
+        theme: {
+          background: '#000000',
+          foreground: '#f0f6fc',
+          cursor: '#58a6ff'
+        }
+      });
+      fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(container);
+      fitAddon.fit();
+
+      // Connect WebSocket
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${profile}`;
+      activeWs = new WebSocket(wsUrl);
+      activeWs.binaryType = 'arraybuffer';
+
+      activeWs.onopen = () => {
+        // Send initial size
+        activeWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      };
+
+      activeWs.onmessage = (ev) => {
+        if (ev.data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(ev.data));
+        } else {
+          term.write(ev.data);
+        }
+      };
+
+      activeWs.onclose = () => {
+        term.write('\r\n\x1b[33m[Session disconnected]\x1b[0m\r\n');
+      };
+
+      term.onData((data) => {
+        if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+          activeWs.send(data);
+        }
+      });
+
+      term.onResize((size) => {
+        if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+          activeWs.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        if (fitAddon) fitAddon.fit();
+      });
+    }
+
+    function sendTerminalKey(str) {
+      if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+        activeWs.send(str);
+      }
+    }
+
+    function clearTerminal() {
+      if (term) term.clear();
+    }
+
+    function closeTerminal() {
+      if (activeWs) {
+        activeWs.close();
+        activeWs = null;
+      }
+      if (term) {
+        term.dispose();
+        term = null;
+      }
+      document.getElementById('terminal-modal').style.display = 'none';
+      fetchData();
+    }
+
     async function startProfile(profile) {
       try {
         await fetch('/api/start', {
@@ -451,20 +611,6 @@
 
     function promptLogin(profile) {
       alert(`To login profile ${profile}, run in your terminal:\n\nagy-manager login ${profile}\n\nand paste the code.`);
-    }
-
-    async function openPreview(profile) {
-      currentPreviewProfile = profile;
-      document.getElementById('modal-title').innerText = `Live Terminal Preview: ${profile} (tmux: agy-${profile})`;
-      document.getElementById('preview-modal').style.display = 'flex';
-      refreshPreview();
-    }
-
-    async function refreshPreview() {
-      if (!currentPreviewProfile) return;
-      const res = await fetch(`/api/preview/${currentPreviewProfile}`);
-      const data = await res.json();
-      document.getElementById('term-output').innerText = data.content || '(No terminal output or session inactive)';
     }
 
     function openSwitchModal(uuid) {
@@ -500,28 +646,6 @@
         alert(`Successfully switched conversation ${uuid.substring(0, 8)}... to ${target}!`);
       } catch (err) {
         alert('Error: ' + err.message);
-      }
-    }
-
-    async function syncData() {
-      const btn = document.getElementById('btn-sync');
-      btn.disabled = true;
-      btn.innerText = '⏳ Synchronizacja...';
-      try {
-        const res = await fetch('/api/sync', { method: 'POST' });
-        const data = await res.json();
-        if (data.status === 'ok') {
-          const r = data.result || {};
-          alert(`Synchronizacja zakończona pomyślnie!\n- Zaktualizowano baz rozmów: ${r.conversations_synced || 0}\n- Zaktualizowano podsumowań: ${r.summaries_updated || 0}`);
-          fetchData();
-        } else {
-          alert('Błąd synchronizacji: ' + JSON.stringify(data));
-        }
-      } catch (err) {
-        alert('Błąd synchronizacji: ' + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.innerText = '⚡ Synchronizuj z /home/kacper';
       }
     }
 

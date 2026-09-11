@@ -296,6 +296,32 @@ def cmd_web(args):
     ]
     os.execv("/srv/agy-manager/venv/bin/uvicorn", cmd)
 
+def cmd_usage(args):
+    profile = args.profile
+    if profile:
+        if not core.validate_profile_name(profile):
+            print(f"Error: Invalid profile name '{profile}'", file=sys.stderr)
+            sys.exit(1)
+        profiles = [profile]
+    else:
+        profiles = [p for p in core.list_all_profiles() if core.is_profile_logged_in(p)]
+
+    print(f"\n=== Antigravity Real-Time Quotas & Limits ({len(profiles)} Profiles) ===")
+    print(f"{'PROFILE':<14} {'GEMINI 5H':<14} {'RESET 5H':<12} {'GEMINI WK':<14} {'RESET WK':<12} {'CLAUDE WK':<12}")
+    print("-" * 80)
+
+    import quota
+    cached = quota.get_cached_quotas()
+    for p in profiles:
+        q = cached.get(p) or quota.fetch_profile_quota(p)
+        g5h = f"{q.get('gemini_5h_pct', '-')}%" if q.get('gemini_5h_pct') is not None else "-"
+        g5h_r = q.get('gemini_5h_human', '-')
+        gw = f"{q.get('gemini_weekly_pct', '-')}%" if q.get('gemini_weekly_pct') is not None else "-"
+        gw_r = q.get('gemini_weekly_human', '-')
+        cw = f"{q.get('claude_weekly_pct', '-')}%" if q.get('claude_weekly_pct') is not None else "-"
+        print(f"{p:<14} {g5h:<14} {g5h_r:<12} {gw:<14} {gw_r:<12} {cw:<12}")
+    print()
+
 def main():
     db.init_db()
     parser = argparse.ArgumentParser(
@@ -361,6 +387,10 @@ def main():
     p_sync = subparsers.add_parser("sync", help="Sync session data from /home/kacper into shared storage")
     p_sync.add_argument("--source", default="/home/kacper", help="Source home directory (default: /home/kacper)")
 
+    # usage
+    p_usage = subparsers.add_parser("usage", help="Show real-time quotas and limit reset times")
+    p_usage.add_argument("profile", nargs="?", help="Specific profile (optional)")
+
     # web
     p_web = subparsers.add_parser("web", help="Start FastAPI Web Dashboard")
     p_web.add_argument("--host", default="0.0.0.0", help="Host address")
@@ -385,6 +415,7 @@ def main():
         "unlock": cmd_unlock,
         "grid": cmd_grid,
         "klajner": cmd_klajner,
+        "usage": cmd_usage,
         "web": cmd_web
     }
 
