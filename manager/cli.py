@@ -102,21 +102,33 @@ def cmd_login(args):
         print(f"Error: Invalid profile name '{profile}'", file=sys.stderr)
         sys.exit(1)
 
-    sess_name = f"agy-login-{profile}"
     home_dir = core.get_profile_home(profile)
-
-    if tmux_ops.has_tmux_session(sess_name):
-        subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
-
-    print(f"Starting login session for {profile} in tmux '{sess_name}'...")
-    subprocess.run(
-        ["tmux", "new-session", "-d", "-s", sess_name, f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"],
-        check=True
-    )
-    subprocess.run(["tmux", "send-keys", "-t", sess_name, "Enter"], check=False)
     
-    print(f"Attach to complete login: tmux attach -t {sess_name}")
-    print("Once authenticated, exit the CLI and the token will be saved.")
+    if args.tmux:
+        sess_name = f"agy-login-{profile}"
+        if tmux_ops.has_tmux_session(sess_name):
+            subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
+        print(f"Starting login session for {profile} in tmux '{sess_name}'...")
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", sess_name, f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"],
+            check=True
+        )
+        subprocess.run(["tmux", "send-keys", "-t", sess_name, "Enter"], check=False)
+        if os.getenv("TMUX"):
+            print(f"Switch to session: tmux switch-client -t {sess_name}")
+        else:
+            print(f"Attach to session: tmux attach -t {sess_name}")
+        return
+
+    print(f"\n=== Logging in {profile} directly in current terminal ===")
+    env = os.environ.copy()
+    env["HOME"] = home_dir
+    env["PATH"] = f"/home/kacper/.local/bin:{env.get('PATH', '')}"
+    subprocess.run([core.AGY_BIN], env=env)
+    if core.is_profile_logged_in(profile):
+        print(f"\n✓ Profile {profile} successfully logged in!")
+    else:
+        print(f"\nProfile {profile} not yet logged in.")
 
 def cmd_start(args):
     profile = args.profile
@@ -172,7 +184,10 @@ def cmd_attach(args):
     if not tmux_ops.has_tmux_session(sess_name):
         print(f"No active tmux session '{sess_name}'. Start it with: agy-manager start {profile}", file=sys.stderr)
         sys.exit(1)
-    os.execvp("tmux", ["tmux", "attach", "-t", sess_name])
+    if os.getenv("TMUX"):
+        os.execvp("tmux", ["tmux", "switch-client", "-t", sess_name])
+    else:
+        os.execvp("tmux", ["tmux", "attach", "-t", sess_name])
 
 def cmd_unlock(args):
     uuid_str = args.uuid
@@ -242,6 +257,7 @@ def main():
     # login
     p_login = subparsers.add_parser("login", help="Launch interactive login for a profile")
     p_login.add_argument("profile", help="Profile name (e.g. account-03)")
+    p_login.add_argument("--tmux", action="store_true", help="Launch in background tmux session")
 
     # start
     p_start = subparsers.add_parser("start", help="Start a profile in tmux")
