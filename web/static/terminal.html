@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Web Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- xterm.js CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #000000;
+      --header-bg: #141922;
+      --border: #262c36;
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent-blue: #58a6ff;
+      --accent-green: #238636;
+      --accent-red: #da3633;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      height: 46px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 16px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #3fb950;
+      box-shadow: 0 0 8px rgba(63, 185, 80, 0.6);
+    }
+    .status-dot.disconnected {
+      background: #f85149;
+      box-shadow: 0 0 8px rgba(248, 81, 73, 0.6);
+    }
+
+    .header-title {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-badge {
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(88, 166, 255, 0.3);
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 10px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      background: #21262d;
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+    .btn:hover {
+      background: #30363d;
+      border-color: #8b949e;
+    }
+
+    #terminal-container {
+      flex: 1;
+      width: 100%;
+      height: calc(100% - 46px);
+      padding: 6px;
+      background: #000000;
+      overflow: hidden;
+    }
+
+    #toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #238636;
+      color: #ffffff;
+      padding: 8px 16px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+      z-index: 9999;
+      display: none;
+      transition: opacity 0.2s ease;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <span class="status-dot" id="status-dot"></span>
+      <div class="header-title">
+        <span id="title-profile">Console</span>
+        <span class="header-badge" id="title-tmux">tmux</span>
+      </div>
+      <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);" id="title-email"></span>
+    </div>
+
+    <div class="header-actions">
+      <span style="font-size: 11px; color: var(--text-muted); margin-right: 4px;">Select to copy · Right-click or Ctrl+V to paste</span>
+      <button class="btn" onclick="copySelection()" title="Copy selected text">📋 Copy</button>
+      <button class="btn" onclick="pasteClipboard()" title="Paste from clipboard">📥 Paste</button>
+      <button class="btn" onclick="sendKey('\x03')">Ctrl+C</button>
+      <button class="btn" onclick="sendKey('\x04')">Ctrl+D</button>
+      <button class="btn" onclick="clearTerm()">Clear</button>
+      <a class="btn" href="/" title="Back to Dashboard">🏠 Dashboard</a>
+    </div>
+  </header>
+
+  <div id="terminal-container"></div>
+  <div id="toast"></div>
+
+  <script>
+    let profile = "account-01";
+    const pathParts = window.location.pathname.split("/").filter(Boolean);
+    if (pathParts.length >= 2 && pathParts[0] === "terminal") {
+      profile = pathParts[1];
+    } else {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("profile")) {
+        profile = urlParams.get("profile");
+      }
+    }
+
+    document.title = `[${profile}] Antigravity Console`;
+    document.getElementById("title-profile").innerText = profile;
+    document.getElementById("title-tmux").innerText = `agy-${profile}`;
+
+    fetch("/api/profiles")
+      .then(r => r.json())
+      .then(d => {
+        const p = d.profiles.find(x => x.name === profile);
+        if (p && p.email) {
+          document.getElementById("title-email").innerText = `✉ ${p.email}`;
+          document.title = `[${profile}] ${p.email} - Console`;
+        }
+      }).catch(() => {});
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.innerText = msg;
+      t.style.display = "block";
+      t.style.opacity = "1";
+      setTimeout(() => {
+        t.style.opacity = "0";
+        setTimeout(() => { t.style.display = "none"; }, 200);
+      }, 1800);
+    }
+
+    const container = document.getElementById("terminal-container");
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 13,
+      theme: {
+        background: "#000000",
+        foreground: "#f0f6fc",
+        cursor: "#58a6ff"
+      }
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(container);
+    fitAddon.fit();
+
+    term.onSelectionChange(() => {
+      if (term.hasSelection()) {
+        const s = term.getSelection();
+        if (s && s.trim().length > 0) {
+          navigator.clipboard.writeText(s).catch(() => {});
+        }
+      }
+    });
+
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      if (event.ctrlKey && (event.key === "c" || event.key === "C") && term.hasSelection()) {
+        navigator.clipboard.writeText(term.getSelection()).then(() => showToast("Copied to clipboard!")).catch(() => {});
+        return false;
+      }
+      if (event.ctrlKey && (event.key === "v" || event.key === "V")) {
+        navigator.clipboard.readText().then(text => {
+          if (text && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(text);
+            showToast("Pasted into terminal!");
+          }
+        }).catch(() => {});
+        return false;
+      }
+      return true;
+    });
+
+    container.oncontextmenu = async (e) => {
+      e.preventDefault();
+      if (term && term.hasSelection()) {
+        const s = term.getSelection();
+        await navigator.clipboard.writeText(s).catch(() => {});
+        showToast("Copied selection!");
+      } else {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(text);
+            showToast("Pasted into terminal!");
+          }
+        } catch (err) {
+          console.warn(err);
+        }
+      }
+    };
+
+    container.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      if (text && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(text);
+        showToast("Pasted into terminal!");
+      }
+    });
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${profile}`;
+    let ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+      document.getElementById("status-dot").className = "status-dot";
+      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+    };
+
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(ev.data));
+      } else {
+        term.write(ev.data);
+      }
+    };
+
+    ws.onclose = () => {
+      document.getElementById("status-dot").className = "status-dot disconnected";
+      term.write("
+[33m[Session disconnected - refresh page to reconnect][0m
+");
+    };
+
+    term.onData((data) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+
+    term.onResize((size) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "resize", cols: size.cols, rows: size.rows }));
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      fitAddon.fit();
+    });
+
+    async function copySelection() {
+      if (term && term.hasSelection()) {
+        const text = term.getSelection();
+        await navigator.clipboard.writeText(text);
+        showToast("Copied to clipboard!");
+      } else {
+        showToast("Tip: Select text in terminal first");
+      }
+    }
+
+    async function pasteClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(text);
+          showToast("Pasted into terminal!");
+        }
+      } catch (err) {
+        alert("Clipboard access blocked by browser. You can press Ctrl+V directly to paste.");
+      }
+    }
+
+    function sendKey(str) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(str);
+      }
+    }
+
+    function clearTerm() {
+      if (term) term.clear();
+    }
+  </script>
+</body>
+</html>

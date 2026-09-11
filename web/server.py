@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -234,6 +234,12 @@ def preview_session(profile: str):
     sess_name = tmux_ops.get_tmux_session_name(profile)
     content = tmux_ops.capture_tmux_pane(sess_name, lines=60)
     return {"profile": profile, "content": content}
+
+@app.api_route("/terminal/{profile}", methods=["GET", "HEAD"])
+def standalone_terminal_view(profile: str):
+    if not core.validate_profile_name(profile):
+        raise HTTPException(status_code=400, detail="Invalid profile name")
+    return FileResponse("/srv/projects/agy/web/static/terminal.html")
 
 # WebSocket Interactive Web Console (PTY + tmux attach)
 @app.websocket("/ws/terminal/{profile}")

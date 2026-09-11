@@ -309,6 +309,7 @@
           <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Select to copy · Right-click or Ctrl+V to paste</span>
           <button class="btn btn-sm" onclick="copyTerminalSelection()" title="Copy selected text">📋 Copy</button>
           <button class="btn btn-sm" onclick="pasteToTerminal()" title="Paste from clipboard">📥 Paste</button>
+          <button class="btn btn-sm" onclick="popOutCurrentTerminal()" title="Pop out into separate multi-session window">⧉ Pop out</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x03')">Ctrl+C</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x04')">Ctrl+D</button>
           <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
@@ -518,7 +519,8 @@
 
         let buttons = '';
         if (p.logged_in) {
-          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminal('${p.name}')">⌨ Console</button>`;
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Open in separate multi-session window">⧉ Console</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')" title="Open inline modal console">⌨ Modal</button>`;
           if (p.tmux_active) {
             buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')">Stop</button>`;
           } else {
@@ -806,6 +808,32 @@
       }
       document.getElementById('terminal-modal').style.display = 'none';
       fetchData();
+    }
+
+    function openTerminalWindow(profile) {
+      const w = 1150;
+      const h = 760;
+      const left = Math.max(0, Math.round((window.screen.width - w) / 2));
+      const top = Math.max(0, Math.round((window.screen.height - h) / 2));
+      const popup = window.open(
+        `/terminal/${profile}`,
+        `agy_term_${profile}`,
+        `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,status=no`
+      );
+      if (popup) {
+        popup.focus();
+        showToast(`Opened ${profile} in separate console window!`);
+      } else {
+        window.open(`/terminal/${profile}`, '_blank');
+      }
+    }
+
+    function popOutCurrentTerminal() {
+      if (currentProfileTerminal) {
+        const prof = currentProfileTerminal;
+        closeTerminal();
+        openTerminalWindow(prof);
+      }
     }
 
     async function startProfile(profile) {
