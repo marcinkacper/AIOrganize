@@ -203,6 +203,7 @@
       <span class="badge-pill badge-green">Shared Trajectories</span>
     </div>
     <div style="display: flex; gap: 10px;">
+      <button class="btn btn-primary" id="btn-sync" onclick="syncData()">⚡ Synchronizuj z /home/kacper</button>
       <button class="btn" onclick="fetchData()">↻ Refresh</button>
     </div>
   </header>
@@ -499,6 +500,28 @@
         alert(`Successfully switched conversation ${uuid.substring(0, 8)}... to ${target}!`);
       } catch (err) {
         alert('Error: ' + err.message);
+      }
+    }
+
+    async function syncData() {
+      const btn = document.getElementById('btn-sync');
+      btn.disabled = true;
+      btn.innerText = '⏳ Synchronizacja...';
+      try {
+        const res = await fetch('/api/sync', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          const r = data.result || {};
+          alert(`Synchronizacja zakończona pomyślnie!\n- Zaktualizowano baz rozmów: ${r.conversations_synced || 0}\n- Zaktualizowano podsumowań: ${r.summaries_updated || 0}`);
+          fetchData();
+        } else {
+          alert('Błąd synchronizacji: ' + JSON.stringify(data));
+        }
+      } catch (err) {
+        alert('Błąd synchronizacji: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⚡ Synchronizuj z /home/kacper';
       }
     }
 

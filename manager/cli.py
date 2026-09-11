@@ -98,6 +98,20 @@ def cmd_status(args):
         print("Limits: Normal (No rate limit / 429 detected)")
     print()
 
+def cmd_sync(args):
+    source = getattr(args, "source", "/home/kacper")
+    print(f"\nSynchronizing session data from {source} to /srv/agy-manager/shared...")
+    try:
+        res = core.sync_sessions_from_home(source_home=source)
+        print("✓ Synchronization complete:")
+        print(f"  - Conversations synced/updated: {res.get('conversations_synced', 0)}")
+        print(f"  - Summaries inserted: {res.get('summaries_inserted', 0)}")
+        print(f"  - Summaries updated: {res.get('summaries_updated', 0)}")
+    except Exception as e:
+        print(f"Error during synchronization: {e}", file=sys.stderr)
+        sys.exit(1)
+    print()
+
 def cmd_login(args):
     profile = args.profile
     if not core.validate_profile_name(profile):
@@ -343,6 +357,10 @@ def main():
     # klajner
     subparsers.add_parser("klajner", help="Check status and health of Klajner AGY Engine")
 
+    # sync
+    p_sync = subparsers.add_parser("sync", help="Sync session data from /home/kacper into shared storage")
+    p_sync.add_argument("--source", default="/home/kacper", help="Source home directory (default: /home/kacper)")
+
     # web
     p_web = subparsers.add_parser("web", help="Start FastAPI Web Dashboard")
     p_web.add_argument("--host", default="0.0.0.0", help="Host address")
@@ -358,6 +376,7 @@ def main():
         "models": cmd_models,
         "conversations": cmd_conversations,
         "status": cmd_status,
+        "sync": cmd_sync,
         "login": cmd_login,
         "start": cmd_start,
         "switch": cmd_switch,

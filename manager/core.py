@@ -6,6 +6,7 @@ import time
 import signal
 import sqlite3
 import subprocess
+import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -331,3 +332,214 @@ def unlock_stale_lock(uuid_str: str) -> bool:
         log_audit("UNLOCK", conversation_uuid=uuid_str, details="Stale lock removed")
         return True
     return False
+
+def update_conversation_summaries() -> Dict[str, int]:
+    """
+    Extracts real titles, user prompts, steps and timestamps from brain/ and history.jsonl,
+    and updates /srv/agy-manager/shared/conversation_summaries.db.
+    """
+    brain_dir = os.path.join(SHARED_DIR, "brain")
+    hist_file = os.path.join(SHARED_DIR, "history.jsonl")
+    conv_dir = os.path.join(SHARED_DIR, "conversations")
+    summaries_db = os.path.join(SHARED_DIR, "conversation_summaries.db")
+
+    hist_map = {}
+    if os.path.exists(hist_file):
+        try:
+            with open(hist_file, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        d = json.loads(line.strip())
+                        cid = d.get("conversationId")
+                        disp = d.get("display", "").strip()
+                        ws = d.get("workspace", "").strip()
+                        if cid and disp and cid not in hist_map:
+                            hist_map[cid] = {"title": disp[:80], "workspace": ws}
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    trans_map = {}
+    for p in glob.glob(os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl")):
+        cid = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(p))))
+        title = ""
+        preview = ""
+        try:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                step_count = 0
+                for line in f:
+                    try:
+                        d = json.loads(line.strip())
+                        step_count += 1
+                        if not title:
+                            content = d.get("content", "")
+                            m = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", content, re.DOTALL)
+                            if m:
+                                clean = m.group(1).strip().replace("\n", " ")
+                                title = clean[:80]
+                                preview = clean[:200]
+                            elif d.get("source") == "USER_EXPLICIT" and content:
+                                clean = content.strip().replace("\n", " ")
+                                title = clean[:80]
+                                preview = clean[:200]
+                    except Exception:
+                        pass
+                trans_map[cid] = {"title": title, "preview": preview, "steps": step_count}
+        except Exception:
+            pass
+
+    conn = sqlite3.connect(summaries_db)
+    cur = conn.cursor()
+    cur.execute("SELECT conversation_id FROM conversation_summaries;")
+    existing = {r[0] for r in cur.fetchall()}
+
+    conv_files = glob.glob(os.path.join(conv_dir, "*.db"))
+    inserted = 0
+    updated = 0
+
+    for cf in conv_files:
+        cid = os.path.splitext(os.path.basename(cf))[0]
+        mtime = datetime.fromtimestamp(os.path.getmtime(cf)).isoformat()
+        t_info = trans_map.get(cid, {})
+        h_info = hist_map.get(cid, {})
+        title = h_info.get("title") or t_info.get("title") or f"Conversation {cid[:8]}"
+        preview = t_info.get("preview") or title
+        steps = t_info.get("steps", 1)
+        workspace = h_info.get("workspace", "")
+
+        if cid in existing:
+            cur.execute("""
+                UPDATE conversation_summaries 
+                SET title = ?, preview = ?, step_count = ?, last_modified_time = ?, workspace_uris = ?
+                WHERE conversation_id = ?;
+            """, (title, preview, steps, mtime, workspace, cid))
+            updated += 1
+        else:
+            cur.execute("""
+                INSERT INTO conversation_summaries (
+                    conversation_id, title, preview, step_count, last_modified_time, workspace_uris,
+                    status, source, project_id, agent_name, parent_conversation_id, nesting_depth,
+                    battle_id, winning_conversation_id, not_fully_idle, killed, last_user_input_time,
+                    last_user_input_step_index, app_data_dir, group_id
+                ) VALUES (?, ?, ?, ?, ?, ?, "", "", "default-cli-project", "", "", 0, "", "", 0, 0, ?, 0, "antigravity-cli", "");
+            """, (cid, title, preview, steps, mtime, workspace, mtime))
+            inserted += 1
+
+    conn.commit()
+    conn.close()
+    return {"inserted": inserted, "updated": updated}
+
+def sync_sessions_from_home(source_home: str = "/home/kacper") -> Dict[str, Any]:
+    """
+    Safely synchronizes session data (conversations, brain, annotations, cache, history)
+    from source_home to /srv/agy-manager/shared, preserving SQLite transactional consistency
+    via online backup API without corrupting active WAL files.
+    """
+    src_cli = os.path.join(source_home, ".gemini", "antigravity-cli")
+    if not os.path.isdir(src_cli):
+        raise ValueError(f"Source antigravity-cli directory not found: {src_cli}")
+
+    synced_conv = 0
+    # 1. Sync SQLite conversations
+    src_conv = os.path.join(src_cli, "conversations")
+    dst_conv = os.path.join(SHARED_DIR, "conversations")
+    os.makedirs(dst_conv, exist_ok=True)
+
+    for sf in glob.glob(os.path.join(src_conv, "*.db")):
+        fname = os.path.basename(sf)
+        df = os.path.join(dst_conv, fname)
+        need_sync = False
+        if not os.path.exists(df):
+            need_sync = True
+        else:
+            if os.path.getmtime(sf) > os.path.getmtime(df) or os.path.getsize(sf) != os.path.getsize(df):
+                need_sync = True
+
+        if need_sync:
+            tmp_df = df + ".synctmp"
+            try:
+                src_conn = sqlite3.connect(f"file:{sf}?mode=ro", uri=True)
+                dst_conn = sqlite3.connect(tmp_df)
+                src_conn.backup(dst_conn)
+                dst_conn.close()
+                src_conn.close()
+                os.utime(tmp_df, (os.path.getatime(sf), os.path.getmtime(sf)))
+                os.replace(tmp_df, df)
+                synced_conv += 1
+            except Exception as e:
+                if os.path.exists(tmp_df):
+                    os.remove(tmp_df)
+
+    # 2. Sync Brain files
+    p_brain = subprocess.run(
+        ["rsync", "-au", f"{src_cli}/brain/", f"{SHARED_DIR}/brain/"],
+        capture_output=True, text=True
+    )
+
+    # 3. Sync Annotations
+    p_ann = subprocess.run(
+        ["rsync", "-au", f"{src_cli}/annotations/", f"{SHARED_DIR}/annotations/"],
+        capture_output=True, text=True
+    )
+
+    # 4. Sync Cache
+    src_last_conv = os.path.join(src_cli, "cache", "last_conversations.json")
+    dst_last_conv = os.path.join(SHARED_DIR, "cache", "last_conversations.json")
+    if os.path.exists(src_last_conv):
+        try:
+            with open(src_last_conv, "r", encoding="utf-8") as f:
+                src_data = json.load(f)
+            dst_data = {}
+            if os.path.exists(dst_last_conv):
+                with open(dst_last_conv, "r", encoding="utf-8") as f:
+                    dst_data = json.load(f)
+            merged = {**dst_data, **src_data}
+            with open(dst_last_conv + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(merged, f, indent=2)
+            os.replace(dst_last_conv + ".tmp", dst_last_conv)
+        except Exception:
+            pass
+
+    # 5. Sync History.jsonl
+    src_hist = os.path.join(src_cli, "history.jsonl")
+    dst_hist = os.path.join(SHARED_DIR, "history.jsonl")
+    if os.path.exists(src_hist):
+        seen_timestamps = set()
+        lines = []
+        if os.path.exists(dst_hist):
+            with open(dst_hist, "r", encoding="utf-8", errors="replace") as f:
+                for l in f:
+                    l_str = l.strip()
+                    if l_str:
+                        try:
+                            ts = json.loads(l_str).get("timestamp")
+                            if ts: seen_timestamps.add(ts)
+                        except Exception: pass
+                        lines.append(l_str)
+        with open(src_hist, "r", encoding="utf-8", errors="replace") as f:
+            for l in f:
+                l_str = l.strip()
+                if l_str:
+                    try:
+                        ts = json.loads(l_str).get("timestamp")
+                        if ts and ts in seen_timestamps:
+                            continue
+                        seen_timestamps.add(ts)
+                    except Exception: pass
+                    lines.append(l_str)
+        with open(dst_hist + ".tmp", "w", encoding="utf-8") as f:
+            for l in lines:
+                f.write(l + "\n")
+        os.replace(dst_hist + ".tmp", dst_hist)
+
+    # 6. Update conversation summaries
+    sum_res = update_conversation_summaries()
+
+    log_audit("SYNC", details=f"Synchronized {synced_conv} DBs from {source_home}")
+    return {
+        "conversations_synced": synced_conv,
+        "summaries_inserted": sum_res.get("inserted", 0),
+        "summaries_updated": sum_res.get("updated", 0)
+    }
+

@@ -88,6 +88,15 @@ def get_conversations(limit: int = 40):
     convs = core.list_conversations(limit=limit)
     return {"conversations": convs}
 
+@app.post("/api/sync")
+def post_sync():
+    try:
+        result = core.sync_sessions_from_home()
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/klajner")
 def get_klajner():
     return monitor_klajner.check_klajner_health()
