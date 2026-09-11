@@ -108,8 +108,7 @@ def cmd_login(args):
     if tmux_ops.has_tmux_session(sess_name):
         subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
 
-    print(f"
-Initializing OAuth login for {profile}...")
+    print(f"\nInitializing OAuth login for {profile}...")
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", sess_name, f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"],
         check=True
@@ -145,18 +144,15 @@ Initializing OAuth login for {profile}...")
         subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
         sys.exit(1)
 
-    print("
-Otworz ponizszy link w przegladarce (calosc w jednej linii):")
+    print("\nOtworz ponizszy link w przegladarce (calosc w jednej linii):")
     print("-" * 80)
     print(url)
     print("-" * 80)
 
     try:
-        auth_code = input("
-Wklej kod autoryzacyjny z przegladarki: ").strip()
+        auth_code = input("\nWklej kod autoryzacyjny z przegladarki: ").strip()
     except (KeyboardInterrupt, EOFError):
-        print("
-Operacja przerwana.")
+        print("\nOperacja przerwana.")
         subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
         sys.exit(1)
 
@@ -178,11 +174,9 @@ Operacja przerwana.")
     if core.is_profile_logged_in(profile):
         email_match = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", final_out)
         email_str = f" ({email_match.group(1)})" if email_match else ""
-        print(f"
-✓ Sukces: Profil {profile}{email_str} zostal pomyslnie zalogowany!")
+        print(f"\n✓ Sukces: Profil {profile}{email_str} zostal pomyslnie zalogowany!")
     else:
-        print(f"
-Nie udalo sie zalogowac profilu {profile}. Sprobuj ponownie.")
+        print(f"\nNie udalo sie zalogowac profilu {profile}. Sprobuj ponownie.")
 
 def cmd_start(args):
     profile = args.profile
