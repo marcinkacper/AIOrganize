@@ -7,6 +7,7 @@ import signal
 import sqlite3
 import subprocess
 import json
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -34,6 +35,8 @@ def validate_uuid(uuid_str: str) -> bool:
 def get_profile_home(profile: str) -> str:
     if not validate_profile_name(profile):
         raise ValueError(f"Invalid profile name: {profile}")
+    if profile in ["claude", "codex"]:
+        return "/home/kacper"
     return os.path.join(PROFILES_DIR, profile, "home")
 
 def get_profile_token_path(profile: str) -> str:
@@ -41,6 +44,10 @@ def get_profile_token_path(profile: str) -> str:
     return os.path.join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
 
 def is_profile_logged_in(profile: str) -> bool:
+    if profile == "claude":
+        return os.path.isfile("/home/kacper/.claude.json") or os.path.isfile("/home/kacper/.claude/.credentials.json")
+    if profile == "codex":
+        return os.path.isfile("/home/kacper/.codex/auth.json")
     token_path = get_profile_token_path(profile)
     return os.path.isfile(token_path) and os.path.getsize(token_path) > 50
 
@@ -549,6 +556,73 @@ def unlock_stale_lock(uuid_str: str) -> bool:
         return True
     return False
 
+def delete_conversation(uuid_str: str, force: bool = False) -> bool:
+    """
+    Safely deletes a conversation, including sqlite db files, WAL/SHM,
+    brain directory, and records from conversation_summaries.db and manager.db.
+    Rejects deletion if the conversation is currently active unless force=True.
+    """
+    if not validate_uuid(uuid_str):
+        raise ValueError("Invalid UUID format")
+
+    # Check lock status
+    status = get_lock_status(uuid_str)
+    if status.get("pid") is not None:
+        if not force:
+            raise RuntimeError(f"Cannot delete conversation: active with live process PID {status['pid']}. Stop session first.")
+        else:
+            stop_conversation(uuid_str, timeout_sec=5)
+
+    # Check active sessions in manager.db
+    for s in get_active_sessions():
+        if s.get("conversation_uuid") == uuid_str:
+            if not force:
+                raise RuntimeError(f"Cannot delete conversation: currently active in profile {s.get('profile')}. Stop session first.")
+
+    # 1. Remove database files (.db, .db-wal, .db-shm)
+    for base_dir in [CONVERSATIONS_DIR, "/home/kacper/.gemini/antigravity-cli/conversations"]:
+        for ext in [".db", ".db-wal", ".db-shm"]:
+            fpath = os.path.join(base_dir, f"{uuid_str}{ext}")
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                except Exception:
+                    pass
+
+    # 2. Remove brain directory
+    for base_dir in [os.path.join(SHARED_DIR, "brain"), "/home/kacper/.gemini/antigravity-cli/brain"]:
+        bpath = os.path.join(base_dir, uuid_str)
+        if os.path.exists(bpath):
+            try:
+                shutil.rmtree(bpath, ignore_errors=True)
+            except Exception:
+                pass
+
+    # 3. Remove from conversation_summaries.db
+    summaries_db = os.path.join(SHARED_DIR, "conversation_summaries.db")
+    if os.path.exists(summaries_db):
+        try:
+            conn = sqlite3.connect(summaries_db)
+            with conn:
+                conn.execute("DELETE FROM conversation_summaries WHERE conversation_id = ?;", (uuid_str,))
+            conn.close()
+        except Exception:
+            pass
+
+    # 4. Remove from manager.db (locks, machines, sessions)
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute("DELETE FROM conversation_locks WHERE conversation_uuid = ?;", (uuid_str,))
+            conn.execute("DELETE FROM conversation_machines WHERE conversation_uuid = ?;", (uuid_str,))
+            conn.execute("DELETE FROM sessions WHERE conversation_uuid = ?;", (uuid_str,))
+        conn.close()
+    except Exception:
+        pass
+
+    log_audit("DELETE_CONVERSATION", conversation_uuid=uuid_str, details="Conversation and associated data deleted")
+    return True
+
 def update_conversation_summaries() -> Dict[str, int]:
     """
     Extracts real titles, user prompts, steps and timestamps from brain/ and history.jsonl,
@@ -758,4 +832,72 @@ def sync_sessions_from_home(source_home: str = "/home/kacper") -> Dict[str, Any]
         "summaries_inserted": sum_res.get("inserted", 0),
         "summaries_updated": sum_res.get("updated", 0)
     }
+
+def get_engines_status() -> List[Dict[str, Any]]:
+    """
+    Returns status of secondary AI engines: Claude Code and OpenAI Codex.
+    """
+    tmux_sessions = []
+    try:
+        proc = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True)
+        if proc.returncode == 0:
+            tmux_sessions = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
+    except Exception:
+        pass
+
+    engines = []
+
+    # Claude Code
+    claude_logged_in = os.path.isfile("/home/kacper/.claude.json") or os.path.isfile("/home/kacper/.claude/.credentials.json")
+    claude_active = "agy-claude" in tmux_sessions
+    claude_pid = None
+    if claude_active:
+        try:
+            p_res = subprocess.run(["tmux", "list-panes", "-t", "agy-claude", "-F", "#{pane_pid}"], capture_output=True, text=True)
+            if p_res.returncode == 0 and p_res.stdout.strip():
+                claude_pid = int(p_res.stdout.strip().splitlines()[0])
+        except Exception:
+            pass
+
+    engines.append({
+        "id": "claude",
+        "name": "Claude Code",
+        "binary": "claude",
+        "version": "2.1.269",
+        "provider": "Anthropic",
+        "auth_type": "Claude Pro",
+        "logged_in": claude_logged_in,
+        "tmux_active": claude_active,
+        "tmux_session": "agy-claude",
+        "pid": claude_pid,
+        "description": "Anthropic Claude Code autonomous agent CLI"
+    })
+
+    # OpenAI Codex
+    codex_logged_in = os.path.isfile("/home/kacper/.codex/auth.json")
+    codex_active = "agy-codex" in tmux_sessions
+    codex_pid = None
+    if codex_active:
+        try:
+            p_res = subprocess.run(["tmux", "list-panes", "-t", "agy-codex", "-F", "#{pane_pid}"], capture_output=True, text=True)
+            if p_res.returncode == 0 and p_res.stdout.strip():
+                codex_pid = int(p_res.stdout.strip().splitlines()[0])
+        except Exception:
+            pass
+
+    engines.append({
+        "id": "codex",
+        "name": "OpenAI Codex",
+        "binary": "codex",
+        "version": "0.154.0",
+        "provider": "OpenAI",
+        "auth_type": "ChatGPT Plus/Pro",
+        "logged_in": codex_logged_in,
+        "tmux_active": codex_active,
+        "tmux_session": "agy-codex",
+        "pid": codex_pid,
+        "description": "OpenAI Codex agentic coding CLI"
+    })
+
+    return engines
 

@@ -24,6 +24,7 @@ import manager.tmux_ops as tmux_ops
 import manager.monitor_klajner as monitor_klajner
 import manager.db as db
 import manager.quota as quota
+import manager.fleet_sync as fleet_sync
 
 app = FastAPI(title="Antigravity Multi-Profile Manager", version="1.1.0")
 
@@ -228,6 +229,44 @@ def unlock_lock(req: UnlockRequest):
         return {"success": True, "uuid": req.uuid}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/conversations/{uuid}")
+def delete_conversation_route(uuid: str, force: bool = False):
+    try:
+        core.delete_conversation(uuid, force=force)
+        return {"success": True, "uuid": uuid}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/engines")
+def get_engines_route():
+    return {"engines": core.get_engines_status()}
+
+fleet_sync_state = {"running": False, "last_result": None}
+
+def _run_fleet_sync_task():
+    global fleet_sync_state
+    fleet_sync_state["running"] = True
+    try:
+        res = fleet_sync.sync_all_fleet_nodes()
+        fleet_sync_state["last_result"] = res
+    except Exception as e:
+        fleet_sync_state["last_result"] = [{"error": str(e)}]
+    finally:
+        fleet_sync_state["running"] = False
+
+@app.post("/api/fleet/sync")
+def trigger_fleet_sync_route(background_tasks: BackgroundTasks):
+    global fleet_sync_state
+    if fleet_sync_state["running"]:
+        return {"status": "already_running"}
+    background_tasks.add_task(_run_fleet_sync_task)
+    return {"status": "started"}
+
+@app.get("/api/fleet/status")
+def get_fleet_status_route():
+    global fleet_sync_state
+    return fleet_sync_state
 
 @app.get("/api/preview/{profile}")
 def preview_session(profile: str):

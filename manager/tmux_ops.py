@@ -93,16 +93,21 @@ def start_profile_session(
             )
 
     session_name = get_tmux_session_name(profile)
-    home_dir = get_profile_home(profile)
 
-    # Build agy command
-    cmd = [f"HOME={home_dir}", f"PATH=/home/kacper/.local/bin:$PATH", AGY_BIN]
-    if conversation_uuid:
-        cmd.extend(["--conversation", conversation_uuid])
-    if model:
-        cmd.extend(["--model", model])
-
-    shell_cmd = " ".join(cmd)
+    if profile == "claude":
+        home_dir = "/home/kacper"
+        shell_cmd = "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"
+    elif profile == "codex":
+        home_dir = "/home/kacper"
+        shell_cmd = "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"
+    else:
+        home_dir = get_profile_home(profile)
+        cmd = [f"HOME={home_dir}", f"PATH=/home/kacper/.local/bin:$PATH", AGY_BIN]
+        if conversation_uuid:
+            cmd.extend(["--conversation", conversation_uuid])
+        if model:
+            cmd.extend(["--model", model])
+        shell_cmd = " ".join(cmd)
 
     # If session already exists, kill it cleanly or replace window
     if has_tmux_session(session_name):

@@ -237,6 +237,22 @@ def cmd_logout(args):
     core.logout_profile(profile)
     print(f"✓ Profile '{profile}' ({email}) has been logged out successfully. Token and active sessions removed.")
 
+def cmd_fleet_sync(args):
+    print("Starting fleet session synchronization across Tailscale nodes (porsche, audi, ford)...")
+    try:
+        from . import fleet_sync
+        results = fleet_sync.sync_all_fleet_nodes()
+        for r in results:
+            node = r.get("node")
+            synced = r.get("synced_conversations", 0)
+            errs = r.get("errors", [])
+            err_str = f" [Errors: {len(errs)}]" if errs else ""
+            print(f"  ✓ {node:10}: {synced} conversations registered/synced{err_str}")
+        print("Fleet synchronization completed.")
+    except Exception as e:
+        print(f"Error during fleet sync: {e}", file=sys.stderr)
+        sys.exit(1)
+
 def cmd_start(args):
     profile = args.profile
     uuid_str = args.uuid
@@ -312,6 +328,21 @@ def cmd_unlock(args):
             print(f"Unlocked {uuid_str}.")
     except Exception as e:
         print(f"Error unlocking: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def cmd_delete(args):
+    uuid_str = args.uuid
+    if not args.yes:
+        confirm = input(f"Are you sure you want to permanently delete conversation {uuid_str}? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("Aborted.")
+            return
+
+    try:
+        core.delete_conversation(uuid_str, force=args.force)
+        print(f"Successfully deleted conversation {uuid_str}.")
+    except Exception as e:
+        print(f"Error deleting conversation: {e}", file=sys.stderr)
         sys.exit(1)
 
 def cmd_grid(args):
@@ -433,6 +464,12 @@ def main():
     p_unlock.add_argument("uuid", help="Conversation UUID")
     p_unlock.add_argument("--only-if-stale", action="store_true", help="Only unlock if no PID holds the lock")
 
+    # delete / rm
+    p_del = subparsers.add_parser("delete", aliases=["rm"], help="Permanently delete a conversation and its files")
+    p_del.add_argument("uuid", help="Conversation UUID")
+    p_del.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
+    p_del.add_argument("--force", action="store_true", help="Force stop and delete active conversation")
+
     # grid
     p_grid = subparsers.add_parser("grid", help="Create a 2x2 grid view for profiles")
     p_grid.add_argument("profiles", nargs="*", help="List of up to 4 profiles")
@@ -443,6 +480,9 @@ def main():
     # sync
     p_sync = subparsers.add_parser("sync", help="Sync session data from /home/kacper into shared storage")
     p_sync.add_argument("--source", default="/home/kacper", help="Source home directory (default: /home/kacper)")
+
+    # fleet-sync / sync-fleet
+    subparsers.add_parser("fleet-sync", aliases=["sync-fleet"], help="Pull and sync Antigravity sessions from all fleet machines (porsche, audi, ford)")
 
     # usage
     p_usage = subparsers.add_parser("usage", help="Show real-time quotas and limit reset times")
@@ -464,6 +504,8 @@ def main():
         "conversations": cmd_conversations,
         "status": cmd_status,
         "sync": cmd_sync,
+        "fleet-sync": cmd_fleet_sync,
+        "sync-fleet": cmd_fleet_sync,
         "login": cmd_login,
         "logout": cmd_logout,
         "start": cmd_start,
@@ -471,6 +513,8 @@ def main():
         "stop": cmd_stop,
         "attach": cmd_attach,
         "unlock": cmd_unlock,
+        "delete": cmd_delete,
+        "rm": cmd_delete,
         "grid": cmd_grid,
         "klajner": cmd_klajner,
         "usage": cmd_usage,

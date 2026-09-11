@@ -264,9 +264,18 @@
     </div>
   </div>
 
+  <!-- Autonomous AI Engines: Claude Code & OpenAI Codex -->
+  <div class="section-title">
+    <span>Autonomous AI Engines (Claude Code & OpenAI Codex)</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Multi-Model Coding Fleet · Real-Time Interactive Consoles</span>
+  </div>
+  <div class="profiles-grid" id="engines-container" style="margin-bottom: 25px;">
+    <div style="color: var(--text-muted); padding: 20px;">Loading AI engines...</div>
+  </div>
+
   <!-- Profiles Grid -->
   <div class="section-title">
-    <span>Profiles & Live Quota Limits</span>
+    <span>Antigravity Profiles & Live Quota Limits</span>
     <span style="font-size: 12px; color: var(--text-muted);">Independent Google OAuth Accounts · Live WebSocket Terminal</span>
   </div>
   <div class="profiles-grid" id="profiles-container">
@@ -274,9 +283,14 @@
   </div>
 
   <!-- Shared Conversations -->
-  <div class="section-title">
-    <span>Shared Conversations</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Switchable Across All Authenticated Profiles</span>
+  <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <span>Shared Conversations</span>
+      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Fleet Aggregated across Tailscale (porsche, audi, ford, ferrari)</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="btn btn-sm btn-primary" onclick="triggerFleetSync()" title="Pull new sessions from porsche, audi, and ford">🔄 Sync Fleet Sessions</button>
+    </div>
   </div>
   <div class="data-table-container">
     <table>
@@ -357,7 +371,13 @@
         profilesData = pData.profiles;
         renderProfiles(profilesData);
 
-        const resConvs = await fetch('/api/conversations?limit=25');
+        const resEng = await fetch('/api/engines');
+        if (resEng.ok) {
+          const engData = await resEng.json();
+          renderEngines(engData.engines || []);
+        }
+
+        const resConvs = await fetch('/api/conversations?limit=50');
         const cData = await resConvs.json();
         renderConversations(cData.conversations);
 
@@ -366,6 +386,71 @@
         renderKlajner(kData);
       } catch (err) {
         console.error('Error fetching data:', err);
+      }
+    }
+
+    function renderEngines(engines) {
+      const container = document.getElementById('engines-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      engines.forEach(eng => {
+        const card = document.createElement('div');
+        card.className = 'profile-card';
+
+        let statusBadge = '';
+        if (eng.tmux_active) {
+          statusBadge = `<span class="badge-pill badge-green">LIVE (PID ${eng.pid || '-'})</span>`;
+        } else {
+          statusBadge = `<span class="badge-pill badge-yellow">IDLE</span>`;
+        }
+
+        let buttons = '';
+        buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${eng.id}')" title="Open ${eng.name} in separate window">⧉ Console</button>`;
+        buttons += `<button class="btn btn-sm" onclick="openTerminal('${eng.id}')" title="Open inline modal console">⌨ Modal</button>`;
+        if (eng.tmux_active) {
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${eng.id}')">Stop</button>`;
+        } else {
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${eng.id}')">Start</button>`;
+        }
+
+        const icon = eng.id === 'claude' ? '🤖' : '⚡';
+
+        card.innerHTML = `
+          <div class="profile-card-header">
+            <span class="profile-name" style="font-size: 15px;">${icon} ${eng.name}</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px;">
+            v${eng.version} · ${eng.auth_type}
+          </div>
+          <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+            <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Provider: ${eng.provider}</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${eng.description}</div>
+            <div style="font-size: 11px; color: #3fb950; margin-top: 4px;">tmux: ${eng.tmux_session}</div>
+          </div>
+          <div class="profile-card-actions" style="margin-top: 12px;">
+            ${buttons}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    async function triggerFleetSync() {
+      showToast('Initiating fleet synchronization across all nodes...');
+      try {
+        const res = await fetch('/api/fleet/sync', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'started') {
+          showToast('Fleet sync started in background! Sessions from porsche, audi & ford are syncing.');
+          setTimeout(fetchData, 4000);
+          setTimeout(fetchData, 12000);
+        } else {
+          showToast('Fleet sync is already running in background.');
+        }
+      } catch (err) {
+        alert('Failed to trigger fleet sync: ' + err.message);
       }
     }
 
@@ -619,7 +704,10 @@
           <td>${mtime}</td>
           <td>${c.title} ${walBadge}</td>
           <td>
-            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${c.workspace || ''}')">Switch to...</button>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${c.workspace || ''}')">Switch to...</button>
+              <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Permanently delete conversation">🗑 Delete</button>
+            </div>
           </td>
         `;
         tbody.appendChild(tr);
@@ -881,6 +969,25 @@
         }
       } catch (e) {
         alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteConversation(uuid, title) {
+      const shortUuid = uuid.length >= 5 ? '...' + uuid.slice(-5) : uuid;
+      if (!confirm(`Are you sure you want to permanently delete conversation ${shortUuid}?\n\n"${title || 'Untitled'}"\n\nThis will remove the sqlite database, brain artifacts, and all metadata.`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/conversations/${uuid}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Deleted conversation ${shortUuid}`);
+          fetchData();
+        } else {
+          alert(`Failed to delete: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
       }
     }
 
