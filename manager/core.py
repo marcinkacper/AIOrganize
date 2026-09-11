@@ -254,6 +254,24 @@ def list_conversations(limit: int = 50) -> List[Dict[str, Any]]:
         except Exception:
             pass
 
+    # Load workspace mappings from history.jsonl and cache
+    history_ws = {}
+    for h_path in [os.path.join(SHARED_DIR, "history.jsonl"), "/home/kacper/.gemini/antigravity-cli/history.jsonl"]:
+        if os.path.isfile(h_path):
+            try:
+                with open(h_path, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        try:
+                            d = json.loads(line)
+                            cid = d.get("conversationId")
+                            ws = d.get("workspace")
+                            if cid and ws:
+                                history_ws[cid] = ws
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
     # Merge with actual files on disk in case some are not indexed in summaries
     db_files = glob.glob(os.path.join(CONVERSATIONS_DIR, "*.db"))
     db_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
@@ -275,6 +293,27 @@ def list_conversations(limit: int = 50) -> List[Dict[str, Any]]:
             "last_modified": mtime,
             "workspace": ""
         })
+
+        # Resolve workspace if empty
+        ws_val = meta.get("workspace") or history_ws.get(uuid_str) or ""
+        if not ws_val or ws_val == '""' or ws_val == "[]":
+            # Check transcript
+            tr_file = os.path.join(SHARED_DIR, "brain", uuid_str, ".system_generated", "logs", "transcript.jsonl")
+            if os.path.isfile(tr_file):
+                try:
+                    with open(tr_file, "r", encoding="utf-8", errors="replace") as f:
+                        tr_chunk = f.read(8192)
+                        matches = re.findall(r"/(?:srv/projects|home/[a-zA-Z0-9_-]+)/[a-zA-Z0-9_.-]+", tr_chunk)
+                        if matches:
+                            ws_val = matches[0]
+                except Exception:
+                    pass
+        
+        # Clean up file:// prefix or JSON formatting
+        if ws_val:
+            ws_val = ws_val.replace("file://", "").strip("[]\"' ")
+
+        meta["workspace"] = ws_val or "-"
         meta["size_bytes"] = size
         meta["has_wal"] = wal_exists
         final_list.append(meta)

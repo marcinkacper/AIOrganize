@@ -261,6 +261,7 @@
       <thead>
         <tr>
           <th>UUID</th>
+          <th>Directory / Workspace</th>
           <th>Steps</th>
           <th>Size</th>
           <th>Modified</th>
@@ -269,7 +270,7 @@
         </tr>
       </thead>
       <tbody id="conversations-table">
-        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading conversations...</td></tr>
+        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading conversations...</td></tr>
       </tbody>
     </table>
   </div>
@@ -474,14 +475,19 @@
         const mtime = (c.last_modified || '').substring(0, 19).replace('T', ' ');
         const walBadge = c.has_wal ? '<span class="badge-pill badge-yellow" style="margin-left: 6px;">WAL</span>' : '';
 
+        const wsBadge = c.workspace && c.workspace !== '-' 
+          ? `<span class="badge-pill badge-blue" style="font-family: var(--font-mono); font-size: 11px;">${c.workspace}</span>` 
+          : '<span style="color: var(--text-muted);">-</span>';
+
         tr.innerHTML = `
-          <td style="font-family: var(--font-mono); font-size: 12px;">${c.uuid}</td>
+          <td style="font-family: var(--font-mono); font-size: 12px;" title="${c.uuid}">${c.uuid.substring(0, 8)}...</td>
+          <td>${wsBadge}</td>
           <td>${c.steps}</td>
           <td>${sizeKb}</td>
           <td>${mtime}</td>
           <td>${c.title} ${walBadge}</td>
           <td>
-            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')">Switch to...</button>
+            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${c.workspace || ''}')">Switch to...</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -620,8 +626,11 @@
       alert(`To login profile ${profile}, run in your terminal:\n\nagy-manager login ${profile}\n\nand paste the code.`);
     }
 
-    function openSwitchModal(uuid) {
+    let currentSwitchWs = '/srv/projects/agy';
+
+    function openSwitchModal(uuid, workspace) {
       document.getElementById('switch-uuid').value = uuid;
+      currentSwitchWs = (workspace && workspace !== '-') ? workspace : '/srv/projects/agy';
       const select = document.getElementById('switch-target');
       select.innerHTML = '';
       profilesData.filter(p => p.logged_in).forEach(p => {
@@ -642,7 +651,7 @@
         const res = await fetch('/api/switch', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ target_profile: target, uuid: uuid })
+          body: JSON.stringify({ target_profile: target, uuid: uuid, workspace_dir: currentSwitchWs })
         });
         if (!res.ok) {
           const errData = await res.json();

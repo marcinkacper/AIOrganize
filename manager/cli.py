@@ -62,17 +62,18 @@ def cmd_conversations(args):
     limit = args.limit
     convs = core.list_conversations(limit=limit)
     print(f"\n=== Shared Conversations (Latest {len(convs)}) ===")
-    print(f"{'UUID':<38} {'STEPS':<6} {'SIZE':<10} {'MODIFIED':<20} {'TITLE'}")
-    print("-" * 110)
+    print(f"{'UUID':<38} {'WORKSPACE':<26} {'STEPS':<6} {'SIZE':<10} {'MODIFIED':<20} {'TITLE'}")
+    print("-" * 136)
 
     for c in convs:
         size_str = f"{round(c.get('size_bytes', 0) / 1024, 1)} KB"
         mtime = str(c.get("last_modified", ""))[:19]
-        title = (c.get("title") or "")[:40]
+        title = (c.get("title") or "")[:35]
+        ws = (c.get("workspace") or "-")[:24]
         steps = c.get("steps", 0)
         uuid_str = c.get("uuid", "")
         wal_mark = "*" if c.get("has_wal") else " "
-        print(f"{uuid_str:<38} {steps:<6} {size_str:<10} {mtime:<20} {wal_mark}{title}")
+        print(f"{uuid_str:<38} {ws:<26} {steps:<6} {size_str:<10} {mtime:<20} {wal_mark}{title}")
     print("\n* indicates uncommitted WAL / active conversation")
 
 def cmd_status(args):
