@@ -160,8 +160,13 @@ def get_audit(limit: int = 30):
     return {"audit": [dict(r) for r in rows]}
 
 @app.post("/api/start")
-def start_session(req: StartRequest):
+def start_session(req: StartRequest, request: Request):
     try:
+        client_ip = request.client.host if request.client else None
+        machine = core.resolve_machine(client_ip)
+        if req.uuid:
+            core.record_conversation_machine(req.uuid, machine, client_ip or "")
+
         res = tmux_ops.start_profile_session(
             profile=req.profile,
             conversation_uuid=req.uuid,
@@ -173,8 +178,13 @@ def start_session(req: StartRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/switch")
-def switch_session(req: SwitchRequest):
+def switch_session(req: SwitchRequest, request: Request):
     try:
+        client_ip = request.client.host if request.client else None
+        machine = core.resolve_machine(client_ip)
+        if req.uuid:
+            core.record_conversation_machine(req.uuid, machine, client_ip or "")
+
         res = tmux_ops.switch_conversation(
             target_profile=req.target_profile,
             conversation_uuid=req.uuid,
@@ -220,6 +230,15 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
     if not core.validate_profile_name(profile):
         await websocket.close(code=1008)
         return
+
+    client_ip = websocket.client.host if websocket.client else None
+    machine = core.resolve_machine(client_ip)
+    for s in core.get_active_sessions():
+        if s.get("profile") == profile:
+            active_u = s.get("conversation_uuid")
+            if active_u:
+                core.record_conversation_machine(active_u, machine, client_ip or "")
+            break
 
     home_dir = core.get_profile_home(profile)
     session_name = tmux_ops.get_tmux_session_name(profile)

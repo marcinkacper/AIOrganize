@@ -224,6 +224,97 @@ def get_profile_models(profile: str) -> List[Tuple[str, str]]:
     except Exception as e:
         return []
 
+TAILSCALE_MAP: Dict[str, str] = {
+    "100.70.110.7": "ferrari",
+    "100.116.4.83": "audi",
+    "100.69.214.41": "porsche",
+    "100.78.225.98": "home",
+    "100.90.204.127": "maluch",
+    "100.102.222.75": "kacper",
+    "100.117.157.103": "hp-czsk",
+    "100.123.209.32": "iphone",
+    "100.74.216.93": "tablet",
+    "127.0.0.1": "ferrari",
+    "::1": "ferrari",
+}
+
+def resolve_machine(client_ip: Optional[str] = None) -> str:
+    """
+    Resolves client machine name based on client IP or SSH session.
+    """
+    if not client_ip:
+        ssh_conn = os.environ.get("SSH_CLIENT", "") or os.environ.get("SSH_CONNECTION", "")
+        if ssh_conn:
+            client_ip = ssh_conn.split()[0]
+
+    if not client_ip:
+        return "ferrari"
+
+    client_ip = client_ip.strip()
+    if client_ip in TAILSCALE_MAP:
+        return TAILSCALE_MAP[client_ip]
+
+    # Try dynamic lookup via tailscale status
+    try:
+        proc = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=2)
+        if proc.returncode == 0:
+            data = json.loads(proc.stdout)
+            for peer in data.get("Peer", {}).values():
+                ips = peer.get("TailscaleIPs", [])
+                if client_ip in ips:
+                    hname = peer.get("HostName", "").lower()
+                    if hname:
+                        TAILSCALE_MAP[client_ip] = hname
+                        return hname
+    except Exception:
+        pass
+
+    return "ferrari"
+
+def record_conversation_machine(uuid_str: str, machine: str, client_ip: str = ""):
+    """
+    Records which machine was used for a conversation.
+    """
+    if not uuid_str:
+        return
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_machines (
+                    conversation_uuid TEXT PRIMARY KEY,
+                    machine TEXT NOT NULL,
+                    client_ip TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.execute("""
+                INSERT INTO conversation_machines (conversation_uuid, machine, client_ip, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(conversation_uuid) DO UPDATE SET
+                    machine=excluded.machine,
+                    client_ip=excluded.client_ip,
+                    updated_at=CURRENT_TIMESTAMP;
+            """, (uuid_str, machine, client_ip))
+        conn.close()
+    except Exception:
+        pass
+
+def get_conversation_machines() -> Dict[str, str]:
+    """
+    Retrieves all recorded machine mappings for conversations.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS conversation_machines (conversation_uuid TEXT PRIMARY KEY, machine TEXT NOT NULL, client_ip TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);")
+        cursor.execute("SELECT conversation_uuid, machine FROM conversation_machines;")
+        rows = cursor.fetchall()
+        conn.close()
+        return {r["conversation_uuid"]: r["machine"] for r in rows}
+    except Exception:
+        return {}
+
 def list_conversations(limit: int = 50) -> List[Dict[str, Any]]:
     """
     Lists shared conversations from conversation_summaries.db and filesystem.
@@ -272,6 +363,9 @@ def list_conversations(limit: int = 50) -> List[Dict[str, Any]]:
             except Exception:
                 pass
 
+    # Load recorded machine mappings
+    conv_machines = get_conversation_machines()
+
     # Merge with actual files on disk in case some are not indexed in summaries
     db_files = glob.glob(os.path.join(CONVERSATIONS_DIR, "*.db"))
     db_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
@@ -287,7 +381,7 @@ def list_conversations(limit: int = 50) -> List[Dict[str, Any]]:
 
         meta = results.get(uuid_str, {
             "uuid": uuid_str,
-            "title": f"Conversation {uuid_str[:8]}",
+            "title": f"Conversation {uuid_str[-5:]}",
             "preview": "",
             "steps": 0,
             "last_modified": mtime,
@@ -316,6 +410,7 @@ def list_conversations(limit: int = 50) -> List[Dict[str, Any]]:
         meta["workspace"] = ws_val or "-"
         meta["size_bytes"] = size
         meta["has_wal"] = wal_exists
+        meta["machine"] = conv_machines.get(uuid_str) or "ferrari"
         final_list.append(meta)
 
     return final_list

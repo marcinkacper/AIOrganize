@@ -62,7 +62,7 @@ def cmd_conversations(args):
     limit = args.limit
     convs = core.list_conversations(limit=limit)
     print(f"\n=== Shared Conversations (Latest {len(convs)}) ===")
-    print(f"{'UUID':<38} {'WORKSPACE':<26} {'STEPS':<6} {'SIZE':<10} {'MODIFIED':<20} {'TITLE'}")
+    print(f"{'UUID (L5)':<11} {'MACHINE':<12} {'WORKSPACE':<26} {'STEPS':<6} {'SIZE':<10} {'MODIFIED':<20} {'TITLE'}")
     print("-" * 136)
 
     for c in convs:
@@ -70,10 +70,12 @@ def cmd_conversations(args):
         mtime = str(c.get("last_modified", ""))[:19]
         title = (c.get("title") or "")[:35]
         ws = (c.get("workspace") or "-")[:24]
+        mach = (c.get("machine") or "ferrari")[:10]
         steps = c.get("steps", 0)
         uuid_str = c.get("uuid", "")
+        uuid_short = f"...{uuid_str[-5:]}" if len(uuid_str) >= 5 else uuid_str
         wal_mark = "*" if c.get("has_wal") else " "
-        print(f"{uuid_str:<38} {ws:<26} {steps:<6} {size_str:<10} {mtime:<20} {wal_mark}{title}")
+        print(f"{uuid_short:<11} {mach:<12} {ws:<26} {steps:<6} {size_str:<10} {mtime:<20} {wal_mark}{title}")
     print("\n* indicates uncommitted WAL / active conversation")
 
 def cmd_status(args):
@@ -86,7 +88,9 @@ def cmd_status(args):
         print("No active conversation processes.")
     else:
         for a in active:
-            print(f"PID {a['pid']} | Profile: {a['profile']} | UUID: {a['conversation_uuid']}")
+            u = str(a.get('conversation_uuid', ''))
+            u_short = f"...{u[-5:]}" if len(u) >= 5 else u
+            print(f"PID {a['pid']} | Profile: {a['profile']} | UUID: {u_short} (Full: {u})")
 
     # Klajner status
     print("\n=== External Resource: Klajner AGY Engine ===")

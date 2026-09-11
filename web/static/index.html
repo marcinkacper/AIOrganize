@@ -62,6 +62,23 @@
     .badge-gray { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); border: 1px solid var(--card-border); }
     .badge-red { background: rgba(218, 54, 51, 0.15); color: var(--accent-red-hover); border: 1px solid rgba(218, 54, 51, 0.3); }
     .badge-yellow { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); border: 1px solid rgba(210, 153, 34, 0.3); }
+    .badge-purple { background: rgba(187, 128, 255, 0.15); color: #d2a8ff; border: 1px solid rgba(187, 128, 255, 0.3); }
+
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #238636;
+      color: #ffffff;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      z-index: 9999;
+      display: none;
+      transition: opacity 0.3s ease;
+    }
 
     .btn {
       background: #21262d;
@@ -288,16 +305,22 @@
           <span style="width: 10px; height: 10px; border-radius: 50%; background: #3fb950;"></span>
           <strong id="term-modal-title" style="font-family: var(--font-mono); font-size: 14px;">Web Terminal</strong>
         </div>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Select to copy · Right-click or Ctrl+V to paste</span>
+          <button class="btn btn-sm" onclick="copyTerminalSelection()" title="Copy selected text">📋 Copy</button>
+          <button class="btn btn-sm" onclick="pasteToTerminal()" title="Paste from clipboard">📥 Paste</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x03')">Ctrl+C</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x04')">Ctrl+D</button>
           <button class="btn btn-sm" onclick="clearTerminal()">Clear</button>
-          <button class="btn btn-sm btn-danger" onclick="closeTerminal()">✕ Close Console</button>
+          <button class="btn btn-sm btn-danger" onclick="closeTerminal()">✕ Close</button>
         </div>
       </div>
       <div id="terminal-container"></div>
     </div>
   </div>
+
+  <!-- Toast Notification -->
+  <div id="toast"></div>
 
   <!-- Switch Modal -->
   <div class="modal-overlay" id="switch-modal">
@@ -508,6 +531,11 @@
           ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>` 
           : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Not signed in</div>`;
 
+        const activeShort = p.active_uuid && p.active_uuid.length >= 5 ? '...' + p.active_uuid.slice(-5) : (p.active_uuid || '-');
+        const activeAttr = p.active_uuid 
+          ? `style="font-size: 11px; cursor: pointer; color: #58a6ff;" title="Full UUID: ${p.active_uuid} (Click to copy)" onclick="navigator.clipboard.writeText('${p.active_uuid}'); showToast('Copied UUID: ${p.active_uuid}');"` 
+          : `style="font-size: 11px;"`;
+
         card.innerHTML = `
           <div>
             <div class="profile-header" style="align-items: flex-start;">
@@ -523,7 +551,7 @@
             ${quotaHtml}
             <div class="profile-meta">
               <div>PID: <span class="mono-val">${p.pid || '-'}</span></div>
-              <div>Active UUID: <span class="mono-val" style="font-size: 11px;">${p.active_uuid || '-'}</span></div>
+              <div>Active UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
             </div>
           </div>
           <div class="profile-actions">${buttons}</div>
@@ -537,6 +565,18 @@
       if (usableEl) usableEl.innerText = `${usableCount} ready`;
       const usableSubEl = document.getElementById('stat-usable-sub');
       if (usableSubEl) usableSubEl.innerText = `${loggedCount - usableCount} blocked/cooldown`;
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      if (!toast) return;
+      toast.innerText = msg;
+      toast.style.display = 'block';
+      toast.style.opacity = '1';
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.style.display = 'none'; }, 300);
+      }, 2000);
     }
 
     function renderConversations(convs) {
@@ -553,9 +593,19 @@
           ? `<span class="badge-pill badge-blue" style="font-family: var(--font-mono); font-size: 11px;">${c.workspace}</span>` 
           : '<span style="color: var(--text-muted);">-</span>';
 
+        const uuidShort = c.uuid && c.uuid.length >= 5 ? '...' + c.uuid.slice(-5) : c.uuid;
+        const machineBadge = `<span class="badge-pill badge-purple" style="font-size: 11px; font-weight: 600; padding: 2px 7px;" title="Executed on machine">🖥 ${c.machine || 'ferrari'}</span>`;
+
         tr.innerHTML = `
-          <td style="font-family: var(--font-mono); font-size: 12px;" title="${c.uuid}">${c.uuid.substring(0, 8)}...</td>
-          <td>${wsBadge}</td>
+          <td style="font-family: var(--font-mono); font-size: 12px;">
+            <span class="mono-val" style="cursor: pointer; color: #58a6ff;" title="Full UUID: ${c.uuid} (Click to copy)" onclick="navigator.clipboard.writeText('${c.uuid}'); showToast('Copied full UUID: ${c.uuid}');">${uuidShort}</span>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              ${machineBadge}
+              ${wsBadge}
+            </div>
+          </td>
           <td>${c.steps}</td>
           <td>${sizeKb}</td>
           <td>${mtime}</td>
@@ -578,7 +628,7 @@
         subElem.innerHTML = `Default: ${k.default_model || '-'} ${limitText}`;
       } else {
         statElem.innerHTML = `<span style="color: var(--accent-red);">OFFLINE</span>`;
-        subElem.innerHTML = `Status: ${k.status}`;
+        subElem.innerHTML = `Checked just now`;
       }
     }
 
@@ -605,6 +655,67 @@
       term.loadAddon(fitAddon);
       term.open(container);
       fitAddon.fit();
+
+      // Auto-copy on select
+      term.onSelectionChange(() => {
+        if (term.hasSelection()) {
+          const sel = term.getSelection();
+          if (sel && sel.trim().length > 0) {
+            navigator.clipboard.writeText(sel).catch(() => {});
+          }
+        }
+      });
+
+      // Keyboard shortcuts for Copy & Paste
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.type !== 'keydown') return true;
+        // Ctrl+Shift+C or Ctrl+C when there is an active selection -> Copy
+        if (event.ctrlKey && (event.key === 'c' || event.key === 'C') && term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection()).then(() => showToast('Copied to clipboard!')).catch(() => {});
+          return false;
+        }
+        // Ctrl+V or Ctrl+Shift+V -> Paste
+        if (event.ctrlKey && (event.key === 'v' || event.key === 'V')) {
+          navigator.clipboard.readText().then(text => {
+            if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+              activeWs.send(text);
+              showToast('Pasted into terminal!');
+            }
+          }).catch(() => {});
+          return false;
+        }
+        return true;
+      });
+
+      // Right-click paste/copy support
+      container.oncontextmenu = async (e) => {
+        e.preventDefault();
+        if (term && term.hasSelection()) {
+          const sel = term.getSelection();
+          await navigator.clipboard.writeText(sel).catch(() => {});
+          showToast('Copied selection!');
+        } else {
+          try {
+            const text = await navigator.clipboard.readText();
+            if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+              activeWs.send(text);
+              showToast('Pasted into terminal!');
+            }
+          } catch (err) {
+            console.warn(err);
+          }
+        }
+      };
+
+      // Browser native paste support
+      container.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+          activeWs.send(text);
+          showToast('Pasted into terminal!');
+        }
+      });
 
       // Connect WebSocket
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -644,6 +755,28 @@
       window.addEventListener('resize', () => {
         if (fitAddon) fitAddon.fit();
       });
+    }
+
+    async function copyTerminalSelection() {
+      if (term && term.hasSelection()) {
+        const text = term.getSelection();
+        await navigator.clipboard.writeText(text).catch(() => {});
+        showToast('Copied to clipboard!');
+      } else {
+        showToast('Tip: Select text in console first to copy');
+      }
+    }
+
+    async function pasteToTerminal() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+          activeWs.send(text);
+          showToast('Pasted into terminal!');
+        }
+      } catch (err) {
+        alert('Clipboard access blocked by browser. You can press Ctrl+V directly to paste.');
+      }
     }
 
     function sendTerminalKey(str) {
