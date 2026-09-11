@@ -314,8 +314,12 @@ async def websocket_terminal(websocket: WebSocket, profile: str):
     env["PATH"] = f"/home/kacper/.local/bin:{env.get('PATH', '')}"
 
     # Spawn tmux new-session -A to attach if running, or launch if not
-    # If starting fresh, launch agy directly in that session
-    start_cmd = f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"
+    if profile == "claude":
+        start_cmd = "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"
+    elif profile == "codex":
+        start_cmd = "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"
+    else:
+        start_cmd = f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"
     proc = subprocess.Popen(
         ["tmux", "new-session", "-A", "-s", session_name, "-c", "/srv/projects/agy", start_cmd],
         stdin=slave_fd,

@@ -293,9 +293,12 @@
 
     ws.onclose = () => {
       document.getElementById("status-dot").className = "status-dot disconnected";
-      term.write("
-[33m[Session disconnected - refresh page to reconnect][0m
-");
+      term.write("\r\n\x1b[33m[Session disconnected - refresh page to reconnect]\x1b[0m\r\n");
+    };
+
+    ws.onerror = (e) => {
+      console.warn("WebSocket error", e);
+      document.getElementById("status-dot").className = "status-dot disconnected";
     };
 
     term.onData((data) => {
