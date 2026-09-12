@@ -402,3 +402,6 @@ class AccountPoolRouter:
 
 # Global singleton
 pool_router = AccountPoolRouter()
+
+def get_best_profile(family: str = "gemini") -> Tuple[str, Dict[str, Any]]:
+    return pool_router.get_best_profile(family=family)

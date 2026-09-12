@@ -73,6 +73,48 @@ def get_profile_email(profile: str) -> Optional[str]:
         pass
     return None
 
+def get_profile_active_model(profile: str) -> Optional[str]:
+    """
+    Detects the currently selected model in the profile's Antigravity CLI session.
+    Checks:
+    1. settings.json in profile home
+    2. Latest model selection logs in cli.log
+    """
+    if profile in ["claude", "codex", "bash"]:
+        return profile.capitalize()
+    
+    try:
+        home = get_profile_home(profile)
+    except Exception:
+        return None
+
+    active_model = None
+    settings_path = os.path.join(home, ".gemini", "antigravity-cli", "settings.json")
+    if os.path.isfile(settings_path):
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                active_model = json.load(f).get("model")
+        except Exception:
+            pass
+
+    cli_log = os.path.join(home, ".gemini", "antigravity-cli", "cli.log")
+    if os.path.isfile(cli_log):
+        try:
+            with open(cli_log, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 30000))
+                lines = f.readlines()
+                for line in reversed(lines):
+                    m = re.search(r'label="([^"]+)"', line)
+                    if m:
+                        active_model = m.group(1)
+                        break
+        except Exception:
+            pass
+
+    return active_model
+
 RESERVED_PROFILES = {"klajner", "bash"}
 
 def is_profile_reserved(profile: Optional[str]) -> bool:
@@ -674,8 +716,77 @@ def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
         except Exception:
             pass
 
+def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
+    """
+    Returns mapping of conversation_uuid -> {
+        "pid": pid,
+        "profile": profile_name,
+        "session_name": session_name,
+        "cwd": cwd,
+        "cmdline": cmdline
+    }
+    Detects online conversations from:
+    1. Active agy processes in /proc (via get_active_sessions())
+    2. Presence lock files in /srv/agy-manager/shared/presence/*.lock
+    """
+    online_map: Dict[str, Dict[str, Any]] = {}
+    try:
+        active_sessions = get_active_sessions()
+        for s in active_sessions:
+            u = s.get("conversation_uuid")
+            if u and validate_uuid(u):
+                online_map[u] = {
+                    "pid": s.get("pid"),
+                    "profile": s.get("profile"),
+                    "session_name": s.get("session_name"),
+                    "cwd": s.get("cwd"),
+                    "cmdline": s.get("cmdline")
+                }
+    except Exception:
+        pass
+
+    try:
+        if os.path.isdir(PRESENCE_DIR):
+            for f in os.listdir(PRESENCE_DIR):
+                if f.endswith(".lock"):
+                    u = f[:-5]
+                    if u not in online_map and validate_uuid(u):
+                        lock_st = get_lock_status(u)
+                        if lock_st.get("locked") and not lock_st.get("stale"):
+                            online_map[u] = {
+                                "pid": lock_st.get("pid"),
+                                "profile": lock_st.get("profile") or "active",
+                                "session_name": None,
+                                "cwd": None,
+                                "cmdline": None
+                            }
+    except Exception:
+        pass
+
+    return online_map
+
+def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
+    summaries_db = os.path.join(SHARED_DIR, "conversation_summaries.db")
+    results = {}
+    online_map = get_online_conversations_map()
+
+    if os.path.isfile(summaries_db):
+        try:
+            conn = sqlite3.connect(f"file:{summaries_db}?mode=ro", uri=True)
+            cursor = conn.cursor()
+            cursor.execute("SELECT conversation_id, title, preview, workspace_uris FROM conversation_summaries;")
+            for row in cursor.fetchall():
+                results[row[0]] = {
+                    "title": row[1] or "",
+                    "preview": row[2] or "",
+                    "workspace": row[3] or ""
+                }
+            conn.close()
+        except Exception:
+            pass
+
     db_files = glob.glob(os.path.join(CONVERSATIONS_DIR, "*.db"))
-    counts = {"total": 0, "dev": 0, "smartstaff": 0, "pawel": 0, "smartstaff_other": 0}
+    counts = {"total": 0, "dev": 0, "smartstaff": 0, "pawel": 0, "smartstaff_other": 0, "online": len(online_map)}
     search_clean = search.strip().lower() if search and search.strip() else None
 
     for db_path in db_files[:600]:
@@ -765,6 +876,7 @@ def list_conversations(
 
     # Load recorded machine mappings
     conv_machines = get_conversation_machines()
+    online_map = get_online_conversations_map()
 
     # Merge with actual files on disk in case some are not indexed in summaries
     db_files = glob.glob(os.path.join(CONVERSATIONS_DIR, "*.db"))
@@ -816,13 +928,29 @@ def list_conversations(
         meta["has_wal"] = wal_exists
         meta["machine"] = conv_machines.get(uuid_str) or "ferrari"
 
+        online_info = online_map.get(uuid_str)
+        if online_info:
+            meta["is_online"] = True
+            meta["online_profile"] = online_info.get("profile")
+            meta["online_session"] = online_info.get("session_name")
+            meta["online_pid"] = online_info.get("pid")
+            meta["online_cwd"] = online_info.get("cwd")
+        else:
+            meta["is_online"] = False
+            meta["online_profile"] = None
+            meta["online_session"] = None
+            meta["online_pid"] = None
+            meta["online_cwd"] = None
+
         cat, label = classify_conversation(meta)
         meta["category"] = cat
         meta["agent_label"] = label
 
         # Category filtering
         if target_category != "all":
-            if target_category == "dev" and cat != "dev":
+            if target_category == "online" and not meta["is_online"]:
+                continue
+            elif target_category == "dev" and cat != "dev":
                 continue
             elif target_category == "smartstaff" and cat not in ["smartstaff", "pawel"]:
                 continue
@@ -837,10 +965,10 @@ def list_conversations(
                 continue
 
         final_list.append(meta)
-        if len(final_list) >= limit:
-            break
 
-    return final_list
+    # Sort online conversations to the top, then by last_modified descending
+    final_list.sort(key=lambda x: (1 if x.get("is_online") else 0, x.get("last_modified") or ""), reverse=True)
+    return final_list[:limit]
 
 def stop_conversation(uuid_str: str, timeout_sec: int = 5, force: bool = False) -> bool:
     """

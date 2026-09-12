@@ -378,6 +378,9 @@
 
   <!-- Conversation Category Tabs -->
   <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; flex-wrap: wrap;">
+    <button id="tab-btn-online" class="btn btn-sm" onclick="switchConvCategory('online')" style="padding: 6px 14px; font-weight: 500; border-color: rgba(63, 185, 80, 0.4); color: #3fb950;">
+      🟢 Tylko Online <span id="count-badge-online" style="background: rgba(46, 160, 67, 0.25); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px; font-weight: 700;">...</span>
+    </button>
     <button id="tab-btn-dev" class="btn btn-sm btn-primary" onclick="switchConvCategory('dev')" style="padding: 6px 14px; font-weight: 600;">
       🖥️ Sesje Dev / Robocze <span id="count-badge-dev" style="background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px;">...</span>
     </button>
@@ -556,7 +559,7 @@
 
     function switchConvCategory(cat) {
       currentConvCategory = cat;
-      ['dev', 'smartstaff', 'all'].forEach(c => {
+      ['online', 'dev', 'smartstaff', 'all'].forEach(c => {
         const btn = document.getElementById(`tab-btn-${c}`);
         if (btn) {
           if (c === cat) {
@@ -593,6 +596,9 @@
     }
 
     function updateCategoryCounts(counts) {
+      const onlineBadge = document.getElementById('count-badge-online');
+      if (onlineBadge) onlineBadge.innerText = counts.online || 0;
+
       const devBadge = document.getElementById('count-badge-dev');
       if (devBadge) devBadge.innerText = counts.dev || 0;
 
@@ -1230,6 +1236,12 @@
 
       convs.forEach(c => {
         const tr = document.createElement('tr');
+        const isOnline = !!c.is_online;
+        if (isOnline) {
+          tr.style.backgroundColor = 'rgba(46, 160, 67, 0.08)';
+          tr.style.boxShadow = 'inset 4px 0 0 #3fb950';
+        }
+
         const sizeKb = Math.round((c.size_bytes || 0) / 1024) + ' KB';
         const mtime = (c.last_modified || '').substring(0, 19).replace('T', ' ');
         const walBadge = c.has_wal ? '<span class="badge-pill badge-yellow" style="margin-left: 6px;">WAL</span>' : '';
@@ -1248,6 +1260,30 @@
           ? `<span class="badge-pill ${c.category === 'pawel' ? 'badge-yellow' : 'badge-blue'}" style="font-size: 11px; font-weight: 600; margin-right: 6px; padding: 2px 7px;">${c.category === 'pawel' ? '👑' : '🤖'} ${c.agent_label}</span>` 
           : '';
 
+        const onlineBadge = isOnline
+          ? `<span class="badge-pill badge-green" style="font-size: 11px; font-weight: 700; margin-right: 6px; padding: 2px 8px; box-shadow: 0 0 6px rgba(63,185,80,0.35);"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3fb950;margin-right:4px;box-shadow:0 0 4px #3fb950;"></span>ONLINE: ${c.online_profile || 'aktywna'}</span>`
+          : '';
+
+        let actionButtons = '';
+        if (isOnline) {
+          const prof = c.online_profile || 'best';
+          const sess = c.online_session || '';
+          actionButtons = `
+            <button class="btn btn-sm" style="background: #238636; color: #fff; border-color: #2ea043; font-weight: 600;" onclick="openTerminalWindow('${prof}', '${sess}', '${c.uuid}')" title="Dołącz do aktywnej sesji ${prof} w osobnym oknie">▶ Dołącz (Okno)</button>
+            <button class="btn btn-sm" style="border-color: rgba(63, 185, 80, 0.5); color: #3fb950;" onclick="openTerminal('${prof}', '${sess}', '${c.uuid}')" title="Dołącz do aktywnej sesji w modalu">⌨ Modal</button>
+            <button class="btn btn-sm btn-danger" onclick="stopTarget('${sess || c.uuid}')" title="Zatrzymaj aktywny proces i sesję tmux">⏹ Stop</button>
+            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Przełącz rozmowę na inne konto">Przełącz...</button>
+            <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
+          `;
+        } else {
+          actionButtons = `
+            <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
+            <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
+            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
+            <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
+          `;
+        }
+
         tr.innerHTML = `
           <td style="font-family: var(--font-mono); font-size: 12px;">
             <span class="mono-val" style="cursor: pointer; color: #58a6ff;" title="Pełny UUID: ${c.uuid} (Kliknij, aby skopiować)" onclick="copyTextToClipboard('${c.uuid}'); showToast('Skopiowano UUID: ${c.uuid}');">${highlightedUuid}</span>
@@ -1261,13 +1297,10 @@
           <td>${c.steps}</td>
           <td>${sizeKb}</td>
           <td>${mtime}</td>
-          <td>${agentBadge}${highlightedTitle} ${walBadge}</td>
+          <td>${onlineBadge}${agentBadge}${highlightedTitle} ${walBadge}</td>
           <td>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
-              <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
-              <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
-              <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
+              ${actionButtons}
             </div>
           </td>
         `;

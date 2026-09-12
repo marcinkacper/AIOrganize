@@ -107,6 +107,13 @@ def start_profile_session(
     workspace_dir: str = "/srv/projects/agy",
     model: Optional[str] = None
 ) -> Dict[str, Any]:
+    if profile.lower() in ("any", "auto", "best", "konsola", "default"):
+        try:
+            from . import pool_router
+        except Exception:
+            import pool_router
+        profile, _ = pool_router.get_best_profile()
+
     if is_profile_reserved(profile):
         raise RuntimeError(f"Profil '{profile}' jest zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika ani w puli ogólnej!")
     if not validate_profile_name(profile):
@@ -235,6 +242,13 @@ def switch_conversation(
     workspace_dir: str = "/srv/projects/agy",
     model: Optional[str] = None
 ) -> Dict[str, Any]:
+    if target_profile.lower() in ("any", "auto", "best", "konsola", "default"):
+        try:
+            from . import pool_router
+        except Exception:
+            import pool_router
+        target_profile, _ = pool_router.get_best_profile()
+
     if is_profile_reserved(target_profile):
         raise RuntimeError(f"Profil '{target_profile}' jest zarezerwowany dla silnika Pawła i nie może być używany do przełączania sesji!")
     if not validate_profile_name(target_profile):

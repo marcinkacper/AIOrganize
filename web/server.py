@@ -158,6 +158,15 @@ def get_profiles():
         is_res = core.is_profile_reserved(p)
         res_for = "pawel" if p.lower() == "klajner" else ("system" if is_res else None)
 
+        active_model = core.get_profile_active_model(p)
+        active_family = "gemini"
+        if active_model:
+            m_lower = active_model.lower()
+            if "claude" in m_lower:
+                active_family = "claude"
+            elif "gemini" in m_lower:
+                active_family = "gemini"
+
         data.append({
             "name": p,
             "email": email,
@@ -173,6 +182,8 @@ def get_profiles():
             "active_uuid": active_uuid,
             "active_machine": active_machine,
             "active_directory": active_cwd,
+            "active_model": active_model,
+            "active_family": active_family,
             "quota": {
                 "gemini_effective_pct": q.get("gemini_effective_pct"),
                 "gemini_status": q.get("gemini_status") or "Unknown",
@@ -258,10 +269,16 @@ def get_best_pool_profile(family: str = "gemini"):
 @app.post("/api/start")
 def start_session(req: StartRequest, request: Request):
     try:
-        if core.is_profile_reserved(req.profile):
+        target_p = req.profile
+        if target_p.lower() in ("any", "auto", "best", "konsola", "default"):
+            best_p, _ = pool_router.get_best_profile()
+            target_p = best_p
+            req.profile = best_p
+
+        if core.is_profile_reserved(target_p):
             raise HTTPException(
                 status_code=403,
-                detail=f"Profil '{req.profile}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika!"
+                detail=f"Profil '{target_p}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika!"
             )
 
         client_ip = request.client.host if request.client else None
@@ -270,7 +287,7 @@ def start_session(req: StartRequest, request: Request):
             core.record_conversation_machine(req.uuid, machine, client_ip or "")
 
         res = tmux_ops.start_profile_session(
-            profile=req.profile,
+            profile=target_p,
             conversation_uuid=req.uuid,
             workspace_dir=req.workspace_dir or "/srv/projects/agy",
             model=req.model
@@ -284,10 +301,16 @@ def start_session(req: StartRequest, request: Request):
 @app.post("/api/switch")
 def switch_session(req: SwitchRequest, request: Request):
     try:
-        if core.is_profile_reserved(req.target_profile):
+        target_p = req.target_profile
+        if target_p.lower() in ("any", "auto", "best", "konsola", "default"):
+            best_p, _ = pool_router.get_best_profile()
+            target_p = best_p
+            req.target_profile = best_p
+
+        if core.is_profile_reserved(target_p):
             raise HTTPException(
                 status_code=403,
-                detail=f"Profil '{req.target_profile}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do przełączania sesji!"
+                detail=f"Profil '{target_p}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do przełączania sesji!"
             )
 
         client_ip = request.client.host if request.client else None
@@ -296,7 +319,7 @@ def switch_session(req: SwitchRequest, request: Request):
             core.record_conversation_machine(req.uuid, machine, client_ip or "")
 
         res = tmux_ops.switch_conversation(
-            target_profile=req.target_profile,
+            target_profile=target_p,
             conversation_uuid=req.uuid,
             workspace_dir=req.workspace_dir or "/srv/projects/agy",
             model=req.model
@@ -306,6 +329,74 @@ def switch_session(req: SwitchRequest, request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/terminal/quota/{profile}")
+def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None):
+    """
+    Zwraca bieżący limit tokenów oraz aktywny model sesji dla wskazanego profilu / okna konsoli.
+    Dynamicznie wykrywa, czy użytkownik przełączył się na Gemini czy Claude.
+    """
+    try:
+        actual_profile = profile
+        if actual_profile.lower() in ("any", "auto", "best", "konsola", "default"):
+            best_p, _ = pool_router.get_best_profile()
+            actual_profile = best_p
+
+        if actual_profile in ["claude", "codex", "bash"]:
+            engines = core.get_engines_status()
+            eng = next((e for e in engines if e["id"] == actual_profile), None)
+            return {
+                "status": "ok",
+                "profile": actual_profile,
+                "email": eng.get("email") if eng else None,
+                "active_model": eng.get("name") if eng else actual_profile.capitalize(),
+                "active_family": actual_profile,
+                "active_effective_pct": eng.get("quota", {}).get("five_hour_pct", 100) if eng else 100,
+                "gemini": None,
+                "claude": None
+            }
+
+        active_model = core.get_profile_active_model(actual_profile)
+        q = quota.get_cached_quotas().get(actual_profile, {})
+        email = core.get_profile_email(actual_profile)
+
+        gemini_eff = q.get("gemini_effective_pct")
+        claude_eff = q.get("claude_effective_pct")
+
+        active_family = "gemini"
+        if active_model:
+            m_lower = active_model.lower()
+            if "claude" in m_lower:
+                active_family = "claude"
+            elif "gemini" in m_lower:
+                active_family = "gemini"
+
+        active_effective_pct = claude_eff if active_family == "claude" else gemini_eff
+
+        return {
+            "status": "ok",
+            "profile": actual_profile,
+            "email": email,
+            "active_model": active_model or "Gemini 3.1 Pro (Domyślny)",
+            "active_family": active_family,
+            "active_effective_pct": active_effective_pct,
+            "gemini": {
+                "effective_pct": gemini_eff,
+                "status": q.get("gemini_status") or "Available",
+                "5h_pct": q.get("gemini_5h_pct"),
+                "weekly_pct": q.get("gemini_weekly_pct"),
+                "wait_human": q.get("gemini_wait_human") or "ready"
+            },
+            "claude": {
+                "effective_pct": claude_eff,
+                "status": q.get("claude_status") or "Available",
+                "5h_pct": q.get("claude_5h_pct"),
+                "weekly_pct": q.get("claude_weekly_pct"),
+                "wait_human": q.get("claude_wait_human") or "ready"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/stop")
 def stop_session(req: StopRequest):
@@ -384,7 +475,7 @@ def preview_session(profile: str):
 
 @app.api_route("/terminal/{target}", methods=["GET", "HEAD"])
 def standalone_terminal_view(target: str):
-    if target.lower() in ("auto", "best", "konsola"):
+    if target.lower() in ("any", "auto", "best", "konsola", "default"):
         return FileResponse("/srv/projects/agy/web/static/terminal.html")
     if core.is_profile_reserved(target):
         raise HTTPException(status_code=403, detail="Profil jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika!")
@@ -407,7 +498,7 @@ async def websocket_terminal(
     profile = target
     session_name = session
 
-    if target.lower() in ("auto", "best", "konsola"):
+    if target.lower() in ("any", "auto", "best", "konsola", "default"):
         try:
             best_p, _ = pool_router.get_best_profile()
             profile = best_p
