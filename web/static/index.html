@@ -1448,27 +1448,30 @@
       term.attachCustomKeyEventHandler((event) => {
         if (event.type !== 'keydown') return true;
 
-        // Copy: Ctrl+C (when selection exists) or Ctrl+Shift+C
+        // Copy: Ctrl+C (only when selection exists in term) or Ctrl+Shift+C
         const isCtrl = event.ctrlKey || event.metaKey;
         const isC = event.key === 'c' || event.key === 'C';
         if (isCtrl && isC) {
-          const sel = term.getSelection() || modalLastSelection;
-          if (sel && sel.trim().length > 0) {
-            const ok = copyTextToClipboard(sel);
-            if (ok) {
-              showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+          if (event.shiftKey || (term.hasSelection() && term.getSelection().length > 0)) {
+            const sel = term.getSelection() || modalLastSelection;
+            if (sel && sel.trim().length > 0) {
+              const ok = copyTextToClipboard(sel);
+              if (ok) {
+                showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+              }
+              return false;
             }
-            return false;
           }
-          // If no selection, let Ctrl+C pass to shell as SIGINT
+          // If no selection, let Ctrl+C pass to shell as SIGINT (\x03)
           return true;
         }
 
         // Paste: Ctrl+V, Ctrl+Shift+V or Shift+Insert
         const isPaste = (isCtrl && (event.key === 'v' || event.key === 'V')) || (event.shiftKey && event.key === 'Insert');
         if (isPaste) {
-          // Let the browser trigger the native paste event so e.clipboardData works across HTTP and HTTPS
-          return true;
+          // Return false so xterm does NOT swallow Ctrl+V as \x16 (SYN).
+          // Browser natively fires the 'paste' event directly into term.textarea
+          return false;
         }
         return true;
       });
@@ -1476,35 +1479,37 @@
       // Right-click paste/copy support
       container.oncontextmenu = (e) => {
         e.preventDefault();
-        const sel = term.getSelection() || modalLastSelection;
-        if (sel && sel.trim().length > 0) {
-          const ok = copyTextToClipboard(sel);
-          if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
-        } else {
-          try {
-            if (navigator.clipboard && navigator.clipboard.readText) {
-              navigator.clipboard.readText().then(text => {
-                if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-                  activeWs.send(text);
-                  showToast('Wklejono do terminala!');
-                }
-              }).catch(() => {});
-            }
-          } catch (err) {
-            console.warn(err);
+        if (term.hasSelection()) {
+          const sel = term.getSelection();
+          if (sel && sel.trim().length > 0) {
+            modalLastSelection = sel;
+            copyTextToClipboard(sel);
+            showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+            return;
           }
         }
+        pasteToTerminal();
       };
 
       // Browser native paste support
       window.addEventListener('paste', (e) => {
         const modal = document.getElementById('terminal-modal');
         if (!modal || modal.style.display === 'none') return;
-        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target.id !== 'terminal-container') return;
+        const isTermTextarea = term && term.textarea && (e.target === term.textarea || (e.composedPath && e.composedPath().includes(term.textarea)));
+        if (isTermTextarea) {
+          showToast('Wklejono do terminala!');
+          return;
+        }
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
         e.preventDefault();
         const text = (e.clipboardData || window.clipboardData)?.getData('text');
-        if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-          activeWs.send(text);
+        if (text) {
+          if (typeof term.paste === 'function') {
+            term.paste(text);
+          } else if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+            activeWs.send(text);
+          }
+          term.focus();
           showToast('Wklejono do terminala!');
         }
       });
@@ -1564,15 +1569,37 @@
     }
 
     async function pasteToTerminal() {
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-          activeWs.send(text);
-          showToast('Wklejono do terminala!');
+      if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            if (typeof term.paste === 'function') {
+              term.paste(text);
+            } else if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+              activeWs.send(text);
+            }
+            term.focus();
+            showToast('Wklejono ze schowka!');
+            return;
+          }
+        } catch (err) {
+          console.warn('navigator.clipboard.readText unavailable:', err);
         }
-      } catch (err) {
-        alert('Dostęp do schowka zablokowany przez przeglądarkę. Użyj bezpośrednio skrótu Ctrl+V.');
       }
+
+      if (modalLastSelection && modalLastSelection.trim().length > 0) {
+        if (typeof term.paste === 'function') {
+          term.paste(modalLastSelection);
+        } else if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+          activeWs.send(modalLastSelection);
+        }
+        term.focus();
+        showToast('Wklejono ostatnio skopiowany tekst!');
+        return;
+      }
+
+      term.focus();
+      showToast('Wciśnij Ctrl+V w oknie konsoli, aby wkleić');
     }
 
     function sendTerminalKey(str) {
