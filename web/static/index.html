@@ -892,7 +892,10 @@
         const q = p.quota || {};
 
         let statusBadge = '';
-        if (!p.logged_in) {
+        const isReservedProfile = p.is_reserved || (p.name || '').toLowerCase() === 'klajner';
+        if (isReservedProfile) {
+          statusBadge = '<span class="badge-pill badge-purple" style="font-weight: 600;">👑 Dedykowany dla Pawła</span>';
+        } else if (!p.logged_in) {
           statusBadge = '<span class="badge-pill badge-gray">Niezalogowany</span>';
         } else if (q.gemini_effective_pct !== null && q.gemini_effective_pct > 0) {
           usableCount++;
@@ -1009,7 +1012,9 @@
         }
 
         let buttons = '';
-        if (p.logged_in) {
+        if (isReservedProfile) {
+          buttons = `<span style="font-size: 11px; color: #d2a8ff; font-weight: 500; padding: 4px 8px; background: rgba(187, 134, 252, 0.08); border-radius: 6px; border: 1px solid rgba(187, 134, 252, 0.25);">🔒 Ściśle dedykowany dla Pawła — zasoby wyłączone z puli</span>`;
+        } else if (p.logged_in) {
           if (sessions.length === 0) {
             buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
             buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz puste okno konsoli">⧉ Okno</button>`;
@@ -1120,7 +1125,7 @@
 
     function findBestProfile() {
       const candidates = (profilesData || [])
-        .filter(p => p.logged_in && p.name !== 'klajner' && p.name !== 'bash')
+        .filter(p => p.logged_in && !p.is_reserved && (p.name || '').toLowerCase() !== 'klajner' && (p.name || '').toLowerCase() !== 'bash' && (p.name || '').toLowerCase() !== 'workspace' && (p.name || '').toLowerCase() !== 'any')
         .slice()
         .sort((a, b) => {
           const qA = a.quota || {};
@@ -1647,7 +1652,7 @@
 
       // Sort profiles by highest available usable percentage descending
       const sorted = profilesData
-        .filter(p => p.logged_in)
+        .filter(p => p.logged_in && !p.is_reserved && (p.name || '').toLowerCase() !== 'klajner' && (p.name || '').toLowerCase() !== 'bash' && (p.name || '').toLowerCase() !== 'workspace' && (p.name || '').toLowerCase() !== 'any')
         .slice()
         .sort((a, b) => {
           const qA = a.quota || {};

@@ -155,11 +155,16 @@ def get_profiles():
         is_dup = bool(email and email in dups)
         dup_with = [x for x in dups.get(email, []) if x != p] if is_dup else []
 
+        is_res = core.is_profile_reserved(p)
+        res_for = "pawel" if p.lower() == "klajner" else ("system" if is_res else None)
+
         data.append({
             "name": p,
             "email": email,
             "is_duplicate": is_dup,
             "duplicate_with": dup_with,
+            "is_reserved": is_res,
+            "reserved_for": res_for,
             "logged_in": logged_in,
             "tmux_active": is_tmux_active,
             "tmux_session": primary_tmux_name,
@@ -230,9 +235,35 @@ def get_audit(limit: int = 30):
     conn.close()
     return {"audit": [dict(r) for r in rows]}
 
+@app.get("/api/pool/best")
+def get_best_pool_profile(family: str = "gemini"):
+    """
+    Zwraca konto z puli ogólnej (account-01..account-12) posiadające najwięcej dostępnych zasobów.
+    Ściśle wyklucza profil 'klajner' (zarezerwowany dla silnika Pawła) oraz profile systemowe.
+    """
+    try:
+        best_p, q = pool_router.get_best_profile(family=family)
+        return {
+            "status": "ok",
+            "profile": best_p,
+            "gemini_effective_pct": q.get("gemini_effective_pct"),
+            "claude_effective_pct": q.get("claude_effective_pct"),
+            "gemini_status": q.get("gemini_status"),
+            "gemini_5h_pct": q.get("gemini_5h_pct"),
+            "quota": q
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/start")
 def start_session(req: StartRequest, request: Request):
     try:
+        if core.is_profile_reserved(req.profile):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Profil '{req.profile}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika!"
+            )
+
         client_ip = request.client.host if request.client else None
         machine = core.resolve_machine(client_ip)
         if req.uuid:
@@ -245,12 +276,20 @@ def start_session(req: StartRequest, request: Request):
             model=req.model
         )
         return res
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/switch")
 def switch_session(req: SwitchRequest, request: Request):
     try:
+        if core.is_profile_reserved(req.target_profile):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Profil '{req.target_profile}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do przełączania sesji!"
+            )
+
         client_ip = request.client.host if request.client else None
         machine = core.resolve_machine(client_ip)
         if req.uuid:
@@ -263,6 +302,8 @@ def switch_session(req: SwitchRequest, request: Request):
             model=req.model
         )
         return res
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -343,6 +384,10 @@ def preview_session(profile: str):
 
 @app.api_route("/terminal/{target}", methods=["GET", "HEAD"])
 def standalone_terminal_view(target: str):
+    if target.lower() in ("auto", "best", "konsola"):
+        return FileResponse("/srv/projects/agy/web/static/terminal.html")
+    if core.is_profile_reserved(target):
+        raise HTTPException(status_code=403, detail="Profil jest ściśle zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika!")
     if not (core.validate_profile_name(target) or target.startswith("agy-")):
         raise HTTPException(status_code=400, detail="Invalid profile or session name")
     return FileResponse("/srv/projects/agy/web/static/terminal.html")
@@ -353,7 +398,8 @@ async def websocket_terminal(
     websocket: WebSocket,
     target: str,
     session: Optional[str] = None,
-    uuid: Optional[str] = None
+    uuid: Optional[str] = None,
+    workspace_dir: Optional[str] = None
 ):
     await websocket.accept()
 
@@ -361,7 +407,18 @@ async def websocket_terminal(
     profile = target
     session_name = session
 
-    if target.startswith("agy-"):
+    if target.lower() in ("auto", "best", "konsola"):
+        try:
+            best_p, _ = pool_router.get_best_profile()
+            profile = best_p
+            if not session_name:
+                session_name = tmux_ops.get_tmux_session_name(profile, uuid) if uuid else tmux_ops.get_tmux_session_name(profile)
+        except Exception as e:
+            await websocket.send_text(f"\r\n[Błąd wyboru konta z puli: {e}]\r\n")
+            await websocket.close(code=1011)
+            return
+
+    elif target.startswith("agy-"):
         session_name = target
         stripped = target[4:]
         if stripped in ("bash", "claude", "codex"):
@@ -379,6 +436,11 @@ async def websocket_terminal(
             session_name = tmux_ops.get_tmux_session_name(target, uuid)
         else:
             session_name = tmux_ops.get_tmux_session_name(target)
+
+    if core.is_profile_reserved(profile):
+        await websocket.send_text(f"\r\n[BŁĄD: Profil '{profile}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany w konsoli!]\r\n")
+        await websocket.close(code=1008)
+        return
 
     if not core.validate_profile_name(profile):
         await websocket.close(code=1008)
@@ -434,8 +496,15 @@ async def websocket_terminal(
         except Exception:
             pass
 
+    ws_dir = workspace_dir
+    if not ws_dir or ws_dir == "/srv/projects/agy":
+        if target.lower() in ("konsola", "auto", "best") or (session_name and "klajner" in session_name.lower()):
+            ws_dir = "/srv/projects/klajner/project"
+        else:
+            ws_dir = "/srv/projects/agy"
+
     proc = subprocess.Popen(
-        ["tmux", "new-session", "-A", "-s", session_name, "-c", "/srv/projects/agy"] + run_cmd,
+        ["tmux", "new-session", "-A", "-s", session_name, "-c", ws_dir] + run_cmd,
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,

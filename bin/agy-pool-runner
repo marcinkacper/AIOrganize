@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+# Query best profile from AGY collector API or python fallback
+BEST_PROFILE=""
+BEST_PCT=""
+if BEST_JSON=$(curl -s --max-time 2 http://127.0.0.1:8099/api/pool/best 2>/dev/null) && [ -n "$BEST_JSON" ]; then
+    BEST_PROFILE=$(echo "$BEST_JSON" | grep -o '"profile":"[^"]*"' | head -n1 | cut -d'"' -f4)
+    BEST_PCT=$(echo "$BEST_JSON" | grep -o '"gemini_effective_pct":[0-9]*' | head -n1 | cut -d':' -f2)
+fi
+
+if [ -z "$BEST_PROFILE" ]; then
+    BEST_LINE=$(python3 -c "import sys; sys.path.insert(0, '/srv/projects/agy'); from manager.pool_router import pool_router; p, q = pool_router.get_best_profile(); print(f'{p}:{q.get(\"gemini_effective_pct\", 0)}')")
+    BEST_PROFILE=$(echo "$BEST_LINE" | cut -d':' -f1)
+    BEST_PCT=$(echo "$BEST_LINE" | cut -d':' -f2)
+fi
+
+if [ -z "$BEST_PROFILE" ]; then
+    echo "BŁĄD: Nie znaleziono żadnego sprawnego konta w puli AGY!" >&2
+    exit 1
+fi
+
+export HOME="/srv/agy-manager/profiles/${BEST_PROFILE}/home"
+export PATH="/home/kacper/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+if [ -t 2 ]; then
+    echo -e "\033[1;34m[AGY-POOL]\033[0m Automatyczny dobór konta z najwyższymi zasobami: \033[1;32m${BEST_PROFILE}\033[0m (dostępny limit: \033[1;33m${BEST_PCT}%\033[0m)" >&2
+fi
+
+exec /home/kacper/.local/bin/agy "$@"

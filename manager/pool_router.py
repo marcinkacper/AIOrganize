@@ -12,6 +12,8 @@ try:
         AGY_BIN,
         is_profile_logged_in,
         list_all_profiles,
+        list_pool_profiles,
+        is_profile_reserved,
         get_profile_home,
         validate_profile_name
     )
@@ -21,6 +23,8 @@ except Exception:
         AGY_BIN,
         is_profile_logged_in,
         list_all_profiles,
+        list_pool_profiles,
+        is_profile_reserved,
         get_profile_home,
         validate_profile_name
     )
@@ -86,14 +90,15 @@ class AccountPoolRouter:
         """
         Zwraca liste kont (profil, remaining_pct), które sa zalogowane,
         posiadaja limit > min_quota i nie sa w chwilowym cooldownie.
+        Sciśle wyklucza profil 'klajner' (zarezerwowany dla Pawła) oraz profile systemowe.
         """
         now = time.time()
         quotas = get_cached_quotas()
-        all_profs = list_all_profiles()
+        pool_profs = list_pool_profiles()
         healthy = []
 
-        for p in all_profs:
-            if not is_profile_logged_in(p):
+        for p in pool_profs:
+            if is_profile_reserved(p) or not is_profile_logged_in(p):
                 continue
 
             # Sprawdz czy konto nie jest w tymczasowym backoffie po bledzie
@@ -114,6 +119,67 @@ class AccountPoolRouter:
         # Sortuj stabilnie wg nazwy profilu dla przewidywalnego round-robin
         healthy.sort(key=lambda x: x[0])
         return healthy
+
+    def get_best_profile(self, family: str = "gemini") -> Tuple[str, Dict[str, Any]]:
+        """
+        Zwraca profil z puli ogolnej (account-01..account-12) z NAJWIĘKSZĄ ilością dostępnych zasobów
+        (najwyższy efektywny procent limitu, najdłuższy czas do wyczerpania).
+        Sciśle wyklucza profil Klajner (zarezerwowany dla Pawła) oraz profile systemowe.
+        """
+        quotas = get_cached_quotas()
+        candidates = []
+        now = time.time()
+        pool_profs = list_pool_profiles()
+
+        for p in pool_profs:
+            if is_profile_reserved(p) or not is_profile_logged_in(p):
+                continue
+            if p in self._temp_cooldowns and self._temp_cooldowns[p] > now:
+                continue
+
+            q = quotas.get(p, {})
+            g_pct = q.get("gemini_effective_pct")
+            g_stat = q.get("gemini_status")
+            c_pct = q.get("claude_effective_pct")
+            c_stat = q.get("claude_status")
+            five_h = q.get("gemini_5h_pct") or 0
+
+            # Ocena zasobow
+            if family == "claude":
+                primary = c_pct if (c_pct is not None and c_stat == "Available") else -1
+                secondary = g_pct if (g_pct is not None and g_stat == "Available") else -1
+            else:
+                primary = g_pct if (g_pct is not None and g_stat == "Available") else -1
+                secondary = c_pct if (c_pct is not None and c_stat == "Available") else -1
+
+            candidates.append({
+                "profile": p,
+                "primary": primary,
+                "secondary": secondary,
+                "five_h": five_h,
+                "quota": q
+            })
+
+        if not candidates:
+            # Awaryjny fallback na dowolne zalogowane konto z puli ogolnej
+            for p in pool_profs:
+                if is_profile_logged_in(p):
+                    q = quotas.get(p, {})
+                    candidates.append({
+                        "profile": p,
+                        "primary": q.get(f"{family}_effective_pct") or 0,
+                        "secondary": 0,
+                        "five_h": 0,
+                        "quota": q
+                    })
+
+        if not candidates:
+            raise RuntimeError("Brak jakichkolwiek dostępnych kont w puli AGY (z wyłączeniem profilu Klajner)!")
+
+        # Sortuj: 1. Najwyzszy limit glowny, 2. Najwyzszy limit dodatkowy, 3. Okno 5h, 4. Nazwa
+        candidates.sort(key=lambda x: (x["primary"], x["secondary"], x["five_h"]), reverse=True)
+        best = candidates[0]
+        return best["profile"], best["quota"]
 
     async def select_account(self, model: str, conversation_uuid: Optional[str] = None) -> Tuple[str, str, int]:
         """
@@ -146,10 +212,10 @@ class AccountPoolRouter:
                     healthy = gemini_healthy
 
             if not healthy:
-                # W ostatecznosci pobierz jakiekolwiek zalogowane konto z najwiekszym limitem
+                # W ostatecznosci pobierz jakiekolwiek zalogowane konto z puli z najwiekszym limitem
                 quotas = get_cached_quotas()
                 candidates = []
-                for p in list_all_profiles():
+                for p in list_pool_profiles():
                     if is_profile_logged_in(p):
                         q = quotas.get(p, {})
                         pct = q.get(f"{family}_effective_pct") or 0
@@ -157,9 +223,9 @@ class AccountPoolRouter:
                 if candidates:
                     candidates.sort(key=lambda x: x[1], reverse=True)
                     best_p, best_pct = candidates[0]
-                    logger.critical(f"[POOL-ROUTER] Brak kont z limitem >{MIN_QUOTA_THRESHOLD}%. Wybieram najlepsze dostepne: {best_p} ({best_pct}%)")
+                    logger.critical(f"[POOL-ROUTER] Brak kont z limitem >{MIN_QUOTA_THRESHOLD}%. Wybieram najlepsze dostepne z puli ogolnej: {best_p} ({best_pct}%)")
                     return best_p, effective_model, best_pct
-                raise Exception("Brak jakichkolwiek zalogowanych kont w kolektorze /srv/projects/agy!")
+                raise Exception("Brak jakichkolwiek zalogowanych kont w puli ogólnej /srv/projects/agy!")
 
             # Logika krążenia (Round-Robin / Session Affinity)
             # Jeśli sesja ma przypisane konto i to konto nadal jest sprawne -> utrzymaj je

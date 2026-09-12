@@ -8,6 +8,7 @@ try:
         validate_uuid,
         get_profile_home,
         is_profile_logged_in,
+        is_profile_reserved,
         get_lock_status,
         stop_conversation,
         unlock_stale_lock,
@@ -23,6 +24,7 @@ except Exception:
         validate_uuid,
         get_profile_home,
         is_profile_logged_in,
+        is_profile_reserved,
         get_lock_status,
         stop_conversation,
         unlock_stale_lock,
@@ -105,6 +107,8 @@ def start_profile_session(
     workspace_dir: str = "/srv/projects/agy",
     model: Optional[str] = None
 ) -> Dict[str, Any]:
+    if is_profile_reserved(profile):
+        raise RuntimeError(f"Profil '{profile}' jest zarezerwowany dla silnika Pawła i nie może być używany do sesji użytkownika ani w puli ogólnej!")
     if not validate_profile_name(profile):
         raise ValueError(f"Invalid profile name: {profile}")
     if not is_profile_logged_in(profile):
@@ -231,6 +235,8 @@ def switch_conversation(
     workspace_dir: str = "/srv/projects/agy",
     model: Optional[str] = None
 ) -> Dict[str, Any]:
+    if is_profile_reserved(target_profile):
+        raise RuntimeError(f"Profil '{target_profile}' jest zarezerwowany dla silnika Pawła i nie może być używany do przełączania sesji!")
     if not validate_profile_name(target_profile):
         raise ValueError(f"Invalid target profile: {target_profile}")
     if not validate_uuid(conversation_uuid):

@@ -25,8 +25,11 @@ AGY_BIN = "/home/kacper/.local/bin/agy"
 
 PROFILE_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 UUID_REGEX = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+IGNORED_PROFILES = {"any", "konsola", "workspace"}
 
 def validate_profile_name(profile: str) -> bool:
+    if not profile or profile.strip().lower() in IGNORED_PROFILES:
+        return False
     return bool(PROFILE_REGEX.match(profile))
 
 def validate_uuid(uuid_str: str) -> bool:
@@ -70,12 +73,35 @@ def get_profile_email(profile: str) -> Optional[str]:
         pass
     return None
 
+RESERVED_PROFILES = {"klajner", "bash"}
+
+def is_profile_reserved(profile: Optional[str]) -> bool:
+    """
+    Returns True if the profile is reserved (e.g. 'Klajner' reserved strictly for Pawel/Kinguin engine)
+    or is a non-account pseudo-profile ('bash').
+    Resources of reserved profiles must NEVER be consumed by the general worker pool or user sessions.
+    """
+    if not profile:
+        return False
+    norm = profile.strip().lower()
+    return norm in RESERVED_PROFILES or norm.startswith("klajner")
+
 def list_all_profiles() -> List[str]:
     if not os.path.isdir(PROFILES_DIR):
         return []
-    profiles = [d for d in os.listdir(PROFILES_DIR) if os.path.isdir(os.path.join(PROFILES_DIR, d))]
+    profiles = [
+        d for d in os.listdir(PROFILES_DIR) 
+        if os.path.isdir(os.path.join(PROFILES_DIR, d)) and d.strip().lower() not in IGNORED_PROFILES
+    ]
     profiles.sort()
     return profiles
+
+def list_pool_profiles() -> List[str]:
+    """
+    Returns only active worker pool accounts (e.g. account-01..account-12),
+    strictly excluding Klajner and system/reserved profiles.
+    """
+    return [p for p in list_all_profiles() if not is_profile_reserved(p)]
 
 def get_duplicate_accounts() -> Dict[str, List[str]]:
     """
@@ -605,28 +631,30 @@ def classify_conversation(meta: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     """
     title = meta.get("title") or ""
     preview = meta.get("preview") or ""
-    ws = meta.get("workspace") or ""
-    text = f"{title} {preview} {ws}".lower()
+    text = f"{title} {preview}".lower()
+
+    is_bot_prompt = (
+        "### instrukcje systemowe:" in text
+        or "### rola i wytyczne:" in text
+        or "bezwzględne zasady tożsamości" in text
+        or "nazywasz się paweł" in text
+        or "twój styl: opanowany, konkretny szef firmy" in text
+        or "[escalate_to_telegram" in text
+    )
+
+    if not is_bot_prompt:
+        # Standard human / developer conversation
+        return "dev", None
 
     is_pawel = any(k in text for k in ["paweł", "pawel", "keyspremium", "kinguin", "klajner"])
     if is_pawel:
         return "pawel", "Klajner: Paweł"
 
-    is_bot = (
-        "### instrukcje systemowe:" in text
-        or "### rola i wytyczne:" in text
-        or "asystent ai" in text
-        or "baza wiedzy" in text
-        or "smartstaff" in text
-        or "/srv/projects/smartstaff" in ws
-    )
-    if is_bot:
-        for name in ["Monika", "Rico", "Tomasz", "Lena", "Armando", "Marta", "Magda", "Ania", "Kamil"]:
-            if name.lower() in text:
-                return "smartstaff", f"SmartStaff: {name}"
-        return "smartstaff", "SmartStaff: Bot API"
+    for name in ["Monika", "Rico", "Tomasz", "Lena", "Armando", "Marta", "Magda", "Ania", "Kamil"]:
+        if name.lower() in text:
+            return "smartstaff", f"SmartStaff: {name}"
 
-    return "dev", None
+    return "smartstaff", "SmartStaff: Bot API"
 
 def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
     summaries_db = os.path.join(SHARED_DIR, "conversation_summaries.db")
