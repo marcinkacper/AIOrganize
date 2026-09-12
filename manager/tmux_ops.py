@@ -171,9 +171,17 @@ def start_profile_session(
     subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], check=False)
 
-    # Disable tmux status bar so application gets 100% of terminal rows
+    # Disable tmux status bar and pane border so application gets 100% of terminal rows cleanly
     subprocess.run(
         ["tmux", "set-option", "-t", session_name, "status", "off"],
+        check=False
+    )
+    subprocess.run(
+        ["tmux", "set-window-option", "-t", session_name, "pane-border-status", "off"],
+        check=False
+    )
+    subprocess.run(
+        ["tmux", "set-option", "-s", "terminal-overrides", "xterm*:csr@:il@:il1@:dl@:dl1@:rin@:indn@"],
         check=False
     )
     # Keep tmux mouse enabled for mouse wheel history scrolling
