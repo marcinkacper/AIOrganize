@@ -266,13 +266,12 @@
         <div class="header-info-top">
           <span id="title-profile" class="title-profile-text">Console</span>
           <span class="header-badge" id="title-tmux">tmux</span>
-          <span class="header-badge" id="title-model" style="background: rgba(187, 134, 252, 0.15); color: #d2a8ff; border-color: rgba(187, 134, 252, 0.35); font-weight: 600; display: none;">-</span>
         </div>
         <div class="header-info-bottom">
           <span id="title-email" class="title-email-text">-</span>
         </div>
       </div>
-      <span class="header-quota-badge" id="title-quota" title="Bieżący limit dla aktywnego modelu">⚡ --%</span>
+      <span class="header-quota-badge" id="title-quota" title="Dostępne tokeny / limit konta">⚡ --%</span>
     </div>
 
     <div class="header-actions">
@@ -340,8 +339,6 @@
         const qEl = document.getElementById("title-quota");
         qEl.innerText = "💻 Server";
         qEl.className = "header-quota-badge";
-        const dq = document.getElementById("dual-quota");
-        if (dq) dq.style.display = "none";
         return;
       }
 
@@ -356,20 +353,11 @@
           document.title = `[${profile}] ${detail} - Console`;
         }
 
-        const modelBadge = document.getElementById("title-model");
-        if (d.active_model) {
-          modelBadge.innerText = d.active_model;
-          modelBadge.style.display = "inline-block";
-          modelBadge.title = `Aktywny model w sesji: ${d.active_model}`;
-        }
-
         const qEl = document.getElementById("title-quota");
-        const activeFam = d.active_family;
         const activePct = d.active_effective_pct;
 
         if (activePct !== null && activePct !== undefined) {
-          const famLabel = activeFam === "claude" ? "Claude: " : (activeFam === "gemini" ? "Gemini: " : "");
-          qEl.innerText = `⚡ ${famLabel}${activePct}%`;
+          qEl.innerText = `⚡ ${activePct}%`;
           if (activePct <= 20) {
             qEl.className = "header-quota-badge red";
           } else if (activePct <= 50) {
@@ -377,10 +365,10 @@
           } else {
             qEl.className = "header-quota-badge";
           }
-          const otherFam = activeFam === "claude" ? "gemini" : "claude";
-          const otherPct = d[otherFam] ? d[otherFam].effective_pct : null;
-          const otherInfo = otherPct !== null ? ` | Drugi model (${otherFam.toUpperCase()}): ${otherPct}%` : "";
-          qEl.title = `Bieżący limit dla aktywnego modelu (${d.active_model || activeFam}): ${activePct}%${otherInfo}`;
+          const otherFam = d.active_family === "claude" ? "Gemini" : "Claude";
+          const otherPct = d[otherFam.toLowerCase()] ? d[otherFam.toLowerCase()].effective_pct : null;
+          const otherInfo = otherPct !== null ? ` | ${otherFam}: ${otherPct}%` : "";
+          qEl.title = `Aktywny model: ${d.active_model || d.active_family} · Dostępny limit: ${activePct}%${otherInfo}`;
         }
       } catch (e) {
         console.warn("Błąd updateTerminalQuota:", e);
