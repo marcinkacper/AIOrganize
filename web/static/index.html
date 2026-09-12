@@ -1467,15 +1467,8 @@
         // Paste: Ctrl+V, Ctrl+Shift+V or Shift+Insert
         const isPaste = (isCtrl && (event.key === 'v' || event.key === 'V')) || (event.shiftKey && event.key === 'Insert');
         if (isPaste) {
-          if (navigator.clipboard && navigator.clipboard.readText) {
-            navigator.clipboard.readText().then(text => {
-              if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-                activeWs.send(text);
-                showToast('Wklejono do terminala!');
-              }
-            }).catch(() => {});
-            return false;
-          }
+          // Let the browser trigger the native paste event so e.clipboardData works across HTTP and HTTPS
+          return true;
         }
         return true;
       });
@@ -1490,11 +1483,12 @@
         } else {
           try {
             if (navigator.clipboard && navigator.clipboard.readText) {
-              const text = await navigator.clipboard.readText();
-              if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
-                activeWs.send(text);
-                showToast('Wklejono do terminala!');
-              }
+              navigator.clipboard.readText().then(text => {
+                if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
+                  activeWs.send(text);
+                  showToast('Wklejono do terminala!');
+                }
+              }).catch(() => {});
             }
           } catch (err) {
             console.warn(err);
@@ -1503,9 +1497,12 @@
       };
 
       // Browser native paste support
-      container.addEventListener('paste', (e) => {
+      window.addEventListener('paste', (e) => {
+        const modal = document.getElementById('terminal-modal');
+        if (!modal || modal.style.display === 'none') return;
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target.id !== 'terminal-container') return;
         e.preventDefault();
-        const text = (e.clipboardData || window.clipboardData).getData('text');
+        const text = (e.clipboardData || window.clipboardData)?.getData('text');
         if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
           activeWs.send(text);
           showToast('Wklejono do terminala!');
