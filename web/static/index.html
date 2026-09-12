@@ -523,17 +523,31 @@
     let fitAddon = null;
     let currentProfileTerminal = null;
 
-    async function copyTextToClipboard(text) {
+    function fallbackCopyText(text) {
       if (!text) return false;
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        try {
-          await navigator.clipboard.writeText(text);
-          return true;
-        } catch (err) {
-          console.warn('navigator.clipboard.writeText failed, trying fallback:', err);
+      let success = false;
+      const listener = (e) => {
+        e.preventDefault();
+        if (e.clipboardData) {
+          e.clipboardData.setData('text/plain', text);
+          success = true;
+        } else if (window.clipboardData) {
+          window.clipboardData.setData('Text', text);
+          success = true;
         }
-      }
+      };
+
       try {
+        document.addEventListener('copy', listener);
+        document.execCommand('copy');
+        document.removeEventListener('copy', listener);
+        if (success) return true;
+      } catch (err) {
+        console.warn('execCommand copy event failed:', err);
+      }
+
+      try {
+        const prevActive = document.activeElement;
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.position = 'fixed';
@@ -545,13 +559,29 @@
         textArea.focus({ preventScroll: true });
         textArea.select();
         textArea.setSelectionRange(0, textArea.value.length);
-        const successful = document.execCommand('copy');
+        const res = document.execCommand('copy');
         document.body.removeChild(textArea);
-        if (successful) return true;
+        if (prevActive && typeof prevActive.focus === 'function') {
+          prevActive.focus();
+        }
+        return res;
       } catch (err) {
         console.error('execCommand copy fallback failed:', err);
       }
       return false;
+    }
+
+    async function copyTextToClipboard(text) {
+      if (!text) return false;
+      if (window.isSecureContext && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (err) {
+          console.warn('navigator.clipboard.writeText failed, trying fallback:', err);
+        }
+      }
+      return fallbackCopyText(text);
     }
 
     let currentConvCategory = 'dev';
@@ -1380,28 +1410,53 @@
         setTimeout(safeFitModal, 250);
       });
 
-      // Auto-copy on select
-      term.onSelectionChange(async () => {
+      let modalLastSelection = '';
+
+      // Keep track of active selection smoothly without stealing focus
+      term.onSelectionChange(() => {
         if (term.hasSelection()) {
-          const sel = term.getSelection();
-          if (sel && sel.trim().length > 0) {
-            await copyTextToClipboard(sel);
+          const s = term.getSelection();
+          if (s && s.trim().length > 0) {
+            modalLastSelection = s;
           }
         }
+      });
+
+      // Auto-copy on mouse selection finish (mouseup)
+      container.addEventListener('mouseup', () => {
+        setTimeout(() => {
+          const sel = term.getSelection();
+          if (sel && sel.trim().length > 0) {
+            modalLastSelection = sel;
+            copyTextToClipboard(sel).then(ok => {
+              if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+            });
+          }
+        }, 10);
       });
 
       // Keyboard shortcuts for Copy & Paste
       term.attachCustomKeyEventHandler((event) => {
         if (event.type !== 'keydown') return true;
-        // Ctrl+Shift+C or Ctrl+C when there is an active selection -> Copy
-        if (event.ctrlKey && (event.key === 'c' || event.key === 'C') && term.hasSelection()) {
-          copyTextToClipboard(term.getSelection()).then(ok => {
-            if (ok) showToast('Skopiowano do schowka!');
-          });
-          return false;
+
+        // Copy: Ctrl+C (when selection exists) or Ctrl+Shift+C
+        const isCtrl = event.ctrlKey || event.metaKey;
+        const isC = event.key === 'c' || event.key === 'C';
+        if (isCtrl && isC) {
+          const sel = term.getSelection() || (event.shiftKey ? modalLastSelection : '');
+          if (sel && sel.trim().length > 0) {
+            copyTextToClipboard(sel).then(ok => {
+              if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+            });
+            return false;
+          }
+          // If no selection, let Ctrl+C pass to shell as SIGINT
+          return true;
         }
-        // Ctrl+V or Ctrl+Shift+V -> Paste
-        if (event.ctrlKey && (event.key === 'v' || event.key === 'V')) {
+
+        // Paste: Ctrl+V, Ctrl+Shift+V or Shift+Insert
+        const isPaste = (isCtrl && (event.key === 'v' || event.key === 'V')) || (event.shiftKey && event.key === 'Insert');
+        if (isPaste) {
           if (navigator.clipboard && navigator.clipboard.readText) {
             navigator.clipboard.readText().then(text => {
               if (text && activeWs && activeWs.readyState === WebSocket.OPEN) {
@@ -1418,10 +1473,10 @@
       // Right-click paste/copy support
       container.oncontextmenu = async (e) => {
         e.preventDefault();
-        if (term && term.hasSelection()) {
-          const sel = term.getSelection();
+        const sel = term.getSelection() || modalLastSelection;
+        if (sel && sel.trim().length > 0) {
           const ok = await copyTextToClipboard(sel);
-          if (ok) showToast('Skopiowano zaznaczenie!');
+          if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
         } else {
           try {
             if (navigator.clipboard && navigator.clipboard.readText) {
