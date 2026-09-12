@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+RAW_BIN="/home/kacper/.local/bin/agy-raw"
+
+# If already inside a specific agy-manager profile home, execute directly
+if [[ "$HOME" == /srv/agy-manager/profiles/* ]]; then
+    exec "$RAW_BIN" "$@"
+fi
+
 # Query best profile from AGY collector API or python fallback
 BEST_PROFILE=""
 BEST_PCT=""
@@ -27,4 +34,4 @@ if [ -t 2 ]; then
     echo -e "\033[1;34m[AGY-POOL]\033[0m Automatyczny dobór konta z najwyższymi zasobami: \033[1;32m${BEST_PROFILE}\033[0m (dostępny limit: \033[1;33m${BEST_PCT}%\033[0m)" >&2
 fi
 
-exec /home/kacper/.local/bin/agy "$@"
+exec "$RAW_BIN" "$@"

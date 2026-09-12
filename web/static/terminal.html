@@ -508,14 +508,16 @@
       }
     });
 
-    // Auto-copy immediately on mouse selection finish (mouseup)
+    // Auto-copy immediately on mouse selection finish (mouseup) - only if text was actually selected
     container.addEventListener("mouseup", () => {
-      const sel = term.getSelection() || lastSelection;
-      if (sel && sel.trim().length > 0) {
-        lastSelection = sel;
-        const ok = copyTextToClipboard(sel);
-        if (ok) {
-          showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+      if (term.hasSelection()) {
+        const sel = term.getSelection();
+        if (sel && sel.trim().length > 0) {
+          lastSelection = sel;
+          const ok = copyTextToClipboard(sel);
+          if (ok) {
+            showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+          }
         }
       }
     });
@@ -526,15 +528,17 @@
       if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
         return; // Don't interfere with form/fallback inputs
       }
-      const sel = term.getSelection() || lastSelection;
-      if (sel && sel.trim().length > 0) {
-        e.preventDefault();
-        if (e.clipboardData) {
-          e.clipboardData.setData("text/plain", sel);
-        } else if (window.clipboardData) {
-          window.clipboardData.setData("Text", sel);
+      if (term.hasSelection()) {
+        const sel = term.getSelection();
+        if (sel && sel.trim().length > 0) {
+          e.preventDefault();
+          if (e.clipboardData) {
+            e.clipboardData.setData("text/plain", sel);
+          } else if (window.clipboardData) {
+            window.clipboardData.setData("Text", sel);
+          }
+          showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
         }
-        showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
       }
     });
 
@@ -551,8 +555,8 @@
       const isCtrl = event.ctrlKey || event.metaKey;
       const isC = event.key === "c" || event.key === "C";
       if (isCtrl && isC) {
-        if (event.shiftKey || (term.hasSelection() && term.getSelection().length > 0)) {
-          const sel = term.getSelection() || lastSelection;
+        if (term.hasSelection() && term.getSelection().length > 0) {
+          const sel = term.getSelection();
           if (sel && sel.trim().length > 0) {
             const ok = copyTextToClipboard(sel);
             if (ok) {
@@ -656,17 +660,19 @@
 
 
     function copySelection() {
-      const text = term.getSelection() || lastSelection;
-      if (text && text.trim().length > 0) {
-        const ok = copyTextToClipboard(text);
-        if (ok) {
-          showToast(`Skopiowano (${text.length} zn.) do schowka!`);
-        } else {
-          showToast("Błąd kopiowania.");
+      if (term.hasSelection()) {
+        const text = term.getSelection();
+        if (text && text.trim().length > 0) {
+          const ok = copyTextToClipboard(text);
+          if (ok) {
+            showToast(`Skopiowano (${text.length} zn.) do schowka!`);
+          } else {
+            showToast("Błąd kopiowania.");
+          }
+          return;
         }
-      } else {
-        showToast("Wskazówka: Zaznacz tekst w terminalu myszką, a następnie kliknij Kopiuj");
       }
+      showToast("Wskazówka: Zaznacz tekst w terminalu myszką, a następnie kliknij Kopiuj");
     }
 
     async function pasteClipboard() {

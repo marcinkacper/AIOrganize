@@ -21,11 +21,11 @@ PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
 SHARED_DIR = os.path.join(BASE_DIR, "shared")
 PRESENCE_DIR = os.path.join(SHARED_DIR, "presence")
 CONVERSATIONS_DIR = os.path.join(SHARED_DIR, "conversations")
-AGY_BIN = "/home/kacper/.local/bin/agy"
+AGY_BIN = "/home/kacper/.local/bin/agy-raw"
 
 PROFILE_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 UUID_REGEX = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
-IGNORED_PROFILES = {"any", "konsola", "workspace"}
+IGNORED_PROFILES = {"any", "konsola", "workspace", "active", "auto", "best", "default"}
 
 def validate_profile_name(profile: str) -> bool:
     if not profile or profile.strip().lower() in IGNORED_PROFILES:
@@ -783,9 +783,23 @@ def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
                     if u not in online_map and validate_uuid(u):
                         lock_st = get_lock_status(u)
                         if lock_st.get("locked") and not lock_st.get("stale"):
+                            holding_pid = lock_st.get("pid")
+                            detected_prof = lock_st.get("profile")
+                            if not detected_prof and holding_pid:
+                                try:
+                                    with open(f"/proc/{holding_pid}/environ", "rb") as ef:
+                                        env_raw = ef.read().split(b"\x00")
+                                    for e in env_raw:
+                                        parts = e.decode("utf-8", errors="replace").split("=", 1)
+                                        if len(parts) == 2 and parts[0] == "HOME":
+                                            if "/srv/agy-manager/profiles/" in parts[1]:
+                                                detected_prof = parts[1].split("/srv/agy-manager/profiles/")[1].split("/")[0]
+                                            break
+                                except Exception:
+                                    pass
                             online_map[u] = {
-                                "pid": lock_st.get("pid"),
-                                "profile": lock_st.get("profile") or "active",
+                                "pid": holding_pid,
+                                "profile": detected_prof or "best",
                                 "session_name": None,
                                 "cwd": None,
                                 "cmdline": None

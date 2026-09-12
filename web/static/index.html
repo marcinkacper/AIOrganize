@@ -1432,14 +1432,16 @@
         }
       });
 
-      // Auto-copy immediately on mouse selection finish (mouseup)
+      // Auto-copy immediately on mouse selection finish (mouseup) - only if text was actually selected
       container.addEventListener('mouseup', () => {
-        const sel = term.getSelection() || modalLastSelection;
-        if (sel && sel.trim().length > 0) {
-          modalLastSelection = sel;
-          const ok = copyTextToClipboard(sel);
-          if (ok) {
-            showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+        if (term.hasSelection()) {
+          const sel = term.getSelection();
+          if (sel && sel.trim().length > 0) {
+            modalLastSelection = sel;
+            const ok = copyTextToClipboard(sel);
+            if (ok) {
+              showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+            }
           }
         }
       });
@@ -1452,8 +1454,8 @@
         const isCtrl = event.ctrlKey || event.metaKey;
         const isC = event.key === 'c' || event.key === 'C';
         if (isCtrl && isC) {
-          if (event.shiftKey || (term.hasSelection() && term.getSelection().length > 0)) {
-            const sel = term.getSelection() || modalLastSelection;
+          if (term.hasSelection() && term.getSelection().length > 0) {
+            const sel = term.getSelection();
             if (sel && sel.trim().length > 0) {
               const ok = copyTextToClipboard(sel);
               if (ok) {
