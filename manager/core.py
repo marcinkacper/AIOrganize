@@ -47,6 +47,8 @@ def get_profile_token_path(profile: str) -> str:
     return os.path.join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
 
 def is_profile_logged_in(profile: str) -> bool:
+    if profile == "bash":
+        return True
     if profile == "claude":
         return os.path.isfile("/home/kacper/.claude.json") or os.path.isfile("/home/kacper/.claude/.credentials.json")
     if profile == "codex":
@@ -55,6 +57,31 @@ def is_profile_logged_in(profile: str) -> bool:
     return os.path.isfile(token_path) and os.path.getsize(token_path) > 50
 
 def get_profile_email(profile: str) -> Optional[str]:
+    if profile == "bash":
+        return "kacper@ferrari"
+    if profile == "claude":
+        if os.path.isfile("/home/kacper/.claude.json"):
+            try:
+                with open("/home/kacper/.claude.json", "r") as f:
+                    return json.load(f).get("oauthAccount", {}).get("emailAddress") or "m.kasprzyk@kenetic.com.pl"
+            except Exception:
+                pass
+        return "m.kasprzyk@kenetic.com.pl"
+    if profile == "codex":
+        if os.path.isfile("/home/kacper/.codex/auth.json"):
+            try:
+                import base64
+                import json
+                with open("/home/kacper/.codex/auth.json", "r") as f:
+                    c_auth = json.load(f)
+                    id_t = c_auth.get("tokens", {}).get("id_token", "")
+                    if id_t and "." in id_t:
+                        payload = json.loads(base64.urlsafe_b64decode(id_t.split(".")[1] + "=="))
+                        return payload.get("email")
+            except Exception:
+                pass
+        return "w.pokrzywniak@kenetic.com.pl"
+
     token_path = get_profile_token_path(profile)
     if not os.path.isfile(token_path):
         return None
@@ -115,13 +142,12 @@ def get_profile_active_model(profile: str) -> Optional[str]:
 
     return active_model
 
-RESERVED_PROFILES = {"klajner", "bash"}
+RESERVED_PROFILES = {"klajner"}
 
 def is_profile_reserved(profile: Optional[str]) -> bool:
     """
-    Returns True if the profile is reserved (e.g. 'Klajner' reserved strictly for Pawel/Kinguin engine)
-    or is a non-account pseudo-profile ('bash').
-    Resources of reserved profiles must NEVER be consumed by the general worker pool or user sessions.
+    Returns True if the profile is strictly reserved for Pawel/Kinguin engine ('klajner').
+    Its tokens and resources must NEVER be used by users or in the general worker pool.
     """
     if not profile:
         return False
@@ -161,7 +187,11 @@ def check_concurrent_account_conflict(target_profile: str) -> Optional[Tuple[str
     """
     Checks if another profile sharing the same Google account email is currently running.
     Returns (conflicting_profile, email) if a conflict is found, else None.
+    Secondary engines (bash, claude, codex) are exempt as they don't share Antigravity Google quotas.
     """
+    if target_profile in ["claude", "codex", "bash"]:
+        return None
+
     target_email = get_profile_email(target_profile)
     if not target_email:
         return None
@@ -169,7 +199,7 @@ def check_concurrent_account_conflict(target_profile: str) -> Optional[Tuple[str
     active_sessions = get_active_sessions()
     for s in active_sessions:
         active_p = s.get("profile")
-        if active_p and active_p != target_profile and is_profile_logged_in(active_p):
+        if active_p and active_p != target_profile and active_p not in ["claude", "codex", "bash"] and is_profile_logged_in(active_p):
             other_email = get_profile_email(active_p)
             if other_email and other_email.lower() == target_email.lower():
                 return (active_p, target_email)
