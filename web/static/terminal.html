@@ -272,13 +272,7 @@
           <span id="title-email" class="title-email-text">-</span>
         </div>
       </div>
-      <div style="display: flex; align-items: center; gap: 6px;" id="quota-container">
-        <span class="header-quota-badge" id="title-quota" title="Bieżący limit dla aktywnego modelu">⚡ --%</span>
-        <div id="dual-quota" style="display: flex; gap: 4px; font-size: 10px; font-family: var(--font-mono);">
-          <span id="quota-gemini" class="header-quota-badge" style="padding: 1px 5px; font-size: 9px; cursor: default;" title="Limit Gemini">G: --%</span>
-          <span id="quota-claude" class="header-quota-badge" style="padding: 1px 5px; font-size: 9px; cursor: default;" title="Limit Claude">C: --%</span>
-        </div>
-      </div>
+      <span class="header-quota-badge" id="title-quota" title="Bieżący limit dla aktywnego modelu">⚡ --%</span>
     </div>
 
     <div class="header-actions">
@@ -370,40 +364,8 @@
         }
 
         const qEl = document.getElementById("title-quota");
-        const gEl = document.getElementById("quota-gemini");
-        const cEl = document.getElementById("quota-claude");
-
-        const gPct = d.gemini ? d.gemini.effective_pct : null;
-        const cPct = d.claude ? d.claude.effective_pct : null;
-
-        if (gPct !== null && gPct !== undefined) {
-          gEl.innerText = `G: ${gPct}%`;
-          gEl.title = `Gemini: ${gPct}% (${d.gemini.status}, 5h: ${d.gemini["5h_pct"] || 0}%, tydzień: ${d.gemini.weekly_pct || 0}%)`;
-        }
-        if (cPct !== null && cPct !== undefined) {
-          cEl.innerText = `C: ${cPct}%`;
-          cEl.title = `Claude: ${cPct}% (${d.claude.status}, 5h: ${d.claude["5h_pct"] || 0}%, tydzień: ${d.claude.weekly_pct || 0}%)`;
-        }
-
-        // Highlight the currently active model family
         const activeFam = d.active_family;
         const activePct = d.active_effective_pct;
-
-        if (activeFam === "claude") {
-          cEl.style.border = "1px solid #58a6ff";
-          cEl.style.boxShadow = "0 0 6px rgba(88, 166, 255, 0.4)";
-          cEl.style.opacity = "1";
-          gEl.style.border = "1px solid rgba(63, 185, 80, 0.3)";
-          gEl.style.boxShadow = "none";
-          gEl.style.opacity = "0.65";
-        } else {
-          gEl.style.border = "1px solid #3fb950";
-          gEl.style.boxShadow = "0 0 6px rgba(63, 185, 80, 0.4)";
-          gEl.style.opacity = "1";
-          cEl.style.border = "1px solid rgba(88, 166, 255, 0.3)";
-          cEl.style.boxShadow = "none";
-          cEl.style.opacity = "0.65";
-        }
 
         if (activePct !== null && activePct !== undefined) {
           const famLabel = activeFam === "claude" ? "Claude: " : (activeFam === "gemini" ? "Gemini: " : "");
@@ -415,7 +377,10 @@
           } else {
             qEl.className = "header-quota-badge";
           }
-          qEl.title = `Bieżący limit dla aktywnego modelu (${d.active_model}): ${activePct}%`;
+          const otherFam = activeFam === "claude" ? "gemini" : "claude";
+          const otherPct = d[otherFam] ? d[otherFam].effective_pct : null;
+          const otherInfo = otherPct !== null ? ` | Drugi model (${otherFam.toUpperCase()}): ${otherPct}%` : "";
+          qEl.title = `Bieżący limit dla aktywnego modelu (${d.active_model || activeFam}): ${activePct}%${otherInfo}`;
         }
       } catch (e) {
         console.warn("Błąd updateTerminalQuota:", e);
