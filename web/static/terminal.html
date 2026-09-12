@@ -231,15 +231,6 @@
       box-sizing: border-box;
     }
 
-    .xterm {
-      height: 100%;
-      width: 100%;
-      padding: 0;
-    }
-
-    .xterm-viewport {
-      overflow-y: auto !important;
-    }
 
     #toast {
       position: fixed;
@@ -409,34 +400,58 @@
     term.loadAddon(fitAddon);
     term.open(container);
 
+    // Register OSC 52 clipboard handler (captures tmux mouse copy-pipe directly)
+    term.parser.registerOscHandler(52, (data) => {
+      try {
+        const idx = data.indexOf(";");
+        const b64 = idx >= 0 ? data.slice(idx + 1) : data;
+        let text = "";
+        try {
+          text = decodeURIComponent(escape(atob(b64.trim())));
+        } catch (_) {
+          text = atob(b64.trim());
+        }
+        if (text && text.length > 0) {
+          lastSelection = text;
+          copyTextToClipboard(text);
+          showToast(`Skopiowano (${text.length} zn.) do schowka!`);
+        }
+      } catch (err) {
+        console.warn("OSC 52 decode error:", err);
+      }
+      return true;
+    });
+
+    let lastCols = 0;
+    let lastRows = 0;
+
     function safeFit() {
       try {
         if (!term || !fitAddon || !container) return;
         if (container.clientWidth < 40 || container.clientHeight < 40) return;
         fitAddon.fit();
-        if (ws && ws.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
-          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        if (term.cols > 0 && term.rows > 0 && (term.cols !== lastCols || term.rows !== lastRows)) {
+          lastCols = term.cols;
+          lastRows = term.rows;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+          }
         }
       } catch (e) {
         console.warn("safeFit error", e);
       }
     }
 
-    // Auto-fit to window / container immediately and on every size change
-    const ro = new ResizeObserver(() => {
-      requestAnimationFrame(safeFit);
-    });
-    ro.observe(container);
-
+    let resizeDebounceTimer = null;
     window.addEventListener("resize", () => {
-      requestAnimationFrame(safeFit);
+      if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+      resizeDebounceTimer = setTimeout(safeFit, 150);
     });
 
     if (document.fonts) {
       document.fonts.ready.then(() => safeFit());
     }
-    setTimeout(safeFit, 50);
-    setTimeout(safeFit, 200);
+    setTimeout(safeFit, 100);
 
     let lastSelection = "";
 
@@ -601,9 +616,9 @@
 
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(ev.data), () => term.scrollToBottom());
+        term.write(new Uint8Array(ev.data));
       } else {
-        term.write(ev.data, () => term.scrollToBottom());
+        term.write(ev.data);
       }
     };
 
@@ -620,7 +635,6 @@
     term.onData((data) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(data);
-        term.scrollToBottom();
       }
     });
 

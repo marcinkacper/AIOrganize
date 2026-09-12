@@ -176,9 +176,9 @@ def start_profile_session(
         ["tmux", "set-option", "-t", session_name, "status", "off"],
         check=False
     )
-    # Strictly disable tmux mouse capture so browser/xterm has 100% native mouse selection and copy
+    # Keep tmux mouse enabled for mouse wheel history scrolling
     subprocess.run(
-        ["tmux", "set-option", "-t", session_name, "mouse", "off"],
+        ["tmux", "set-option", "-t", session_name, "mouse", "on"],
         check=False
     )
     title = f"{profile} | {conversation_uuid or 'NEW'}"

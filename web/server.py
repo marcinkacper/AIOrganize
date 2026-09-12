@@ -605,11 +605,11 @@ async def websocket_terminal(
     )
     os.close(slave_fd)
 
-    # Ensure tmux session dynamically adapts window size to client, has no status bar and does NOT capture mouse
+    # Ensure tmux session dynamically adapts window size to client, has no status bar and preserves mouse scrolling
     subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-t", session_name, "status", "off"], capture_output=True, check=False)
-    subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "off"], capture_output=True, check=False)
+    subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "on"], capture_output=True, check=False)
 
     loop = asyncio.get_running_loop()
 

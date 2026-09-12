@@ -1358,13 +1358,20 @@
       term.loadAddon(fitAddon);
       term.open(container);
 
+      let modalLastCols = 0;
+      let modalLastRows = 0;
+
       function safeFitModal() {
         try {
           if (!term || !fitAddon || !container) return;
           if (container.clientWidth < 40 || container.clientHeight < 40) return;
           fitAddon.fit();
-          if (activeWs && activeWs.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
-            activeWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          if (term.cols > 0 && term.rows > 0 && (term.cols !== modalLastCols || term.rows !== modalLastRows)) {
+            modalLastCols = term.cols;
+            modalLastRows = term.rows;
+            if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+              activeWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
           }
         } catch (e) {
           console.warn('safeFitModal error', e);
@@ -1389,10 +1396,31 @@
       requestAnimationFrame(() => {
         safeFitModal();
         setTimeout(safeFitModal, 60);
-        setTimeout(safeFitModal, 250);
       });
 
       let modalLastSelection = '';
+
+      // Register OSC 52 clipboard handler (captures tmux mouse copy directly)
+      term.parser.registerOscHandler(52, (data) => {
+        try {
+          const idx = data.indexOf(';');
+          const b64 = idx >= 0 ? data.slice(idx + 1) : data;
+          let text = '';
+          try {
+            text = decodeURIComponent(escape(atob(b64.trim())));
+          } catch (_) {
+            text = atob(b64.trim());
+          }
+          if (text && text.length > 0) {
+            modalLastSelection = text;
+            copyTextToClipboard(text);
+            showToast(`Skopiowano (${text.length} zn.) do schowka!`);
+          }
+        } catch (err) {
+          console.warn('OSC 52 decode error:', err);
+        }
+        return true;
+      });
 
       // Keep track of active selection smoothly without stealing focus
       term.onSelectionChange(() => {
@@ -1500,9 +1528,9 @@
 
       activeWs.onmessage = (ev) => {
         if (ev.data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(ev.data), () => term.scrollToBottom());
+          term.write(new Uint8Array(ev.data));
         } else {
-          term.write(ev.data, () => term.scrollToBottom());
+          term.write(ev.data);
         }
       };
 
