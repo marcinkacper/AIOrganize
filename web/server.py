@@ -610,6 +610,7 @@ async def websocket_terminal(
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-t", session_name, "status", "off"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "on"], capture_output=True, check=False)
+    subprocess.run(["tmux", "set-window-option", "-t", session_name, "mode-style", "bg=colour237,fg=colour111"], capture_output=True, check=False)
 
     loop = asyncio.get_running_loop()
 

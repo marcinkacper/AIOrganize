@@ -181,6 +181,10 @@ def start_profile_session(
         ["tmux", "set-option", "-t", session_name, "mouse", "on"],
         check=False
     )
+    subprocess.run(
+        ["tmux", "set-window-option", "-t", session_name, "mode-style", "bg=colour237,fg=colour111"],
+        check=False
+    )
     title = f"{profile} | {conversation_uuid or 'NEW'}"
     subprocess.run(
         ["tmux", "rename-window", "-t", session_name, title],
