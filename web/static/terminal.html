@@ -395,10 +395,13 @@
       cursorBlink: true,
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: 13,
+      convertEol: true,
+      scrollback: 10000,
       theme: {
         background: "#000000",
         foreground: "#f0f6fc",
-        cursor: "#58a6ff"
+        cursor: "#58a6ff",
+        selectionBackground: "rgba(88, 166, 255, 0.45)"
       }
     });
 
@@ -440,60 +443,42 @@
     function fallbackCopyText(text) {
       if (!text) return false;
       let success = false;
-      const listener = (e) => {
-        e.preventDefault();
-        if (e.clipboardData) {
-          e.clipboardData.setData("text/plain", text);
-          success = true;
-        } else if (window.clipboardData) {
-          window.clipboardData.setData("Text", text);
-          success = true;
-        }
-      };
+      const prevActive = document.activeElement;
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.left = "0";
+      textArea.style.top = "0";
+      textArea.style.width = "2em";
+      textArea.style.height = "2em";
+      textArea.style.padding = "0";
+      textArea.style.border = "none";
+      textArea.style.outline = "none";
+      textArea.style.boxShadow = "none";
+      textArea.style.background = "transparent";
+      textArea.style.opacity = "0.01";
+      textArea.style.zIndex = "-1";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      textArea.setSelectionRange(0, textArea.value.length);
 
       try {
-        document.addEventListener("copy", listener);
-        document.execCommand("copy");
-        document.removeEventListener("copy", listener);
-        if (success) return true;
+        success = document.execCommand("copy");
       } catch (err) {
-        console.warn("execCommand copy event failed:", err);
+        console.error("execCommand copy error:", err);
       }
-
-      try {
-        const prevActive = document.activeElement;
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.top = "-9999px";
-        textArea.style.left = "-9999px";
-        textArea.style.opacity = "0";
-        textArea.setAttribute("readonly", "");
-        document.body.appendChild(textArea);
-        textArea.focus({ preventScroll: true });
-        textArea.select();
-        textArea.setSelectionRange(0, textArea.value.length);
-        const res = document.execCommand("copy");
-        document.body.removeChild(textArea);
-        if (prevActive && typeof prevActive.focus === "function") {
-          prevActive.focus();
-        }
-        return res;
-      } catch (err) {
-        console.error("execCommand copy fallback failed:", err);
+      document.body.removeChild(textArea);
+      if (prevActive && typeof prevActive.focus === "function") {
+        try { prevActive.focus(); } catch (_) {}
       }
-      return false;
+      return success;
     }
 
-    async function copyTextToClipboard(text) {
+    function copyTextToClipboard(text) {
       if (!text) return false;
       if (window.isSecureContext && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        try {
-          await navigator.clipboard.writeText(text);
-          return true;
-        } catch (err) {
-          console.warn("navigator.clipboard.writeText failed, using fallback:", err);
-        }
+        navigator.clipboard.writeText(text).catch(() => {});
       }
       return fallbackCopyText(text);
     }
@@ -508,21 +493,24 @@
       }
     });
 
-    // Auto-copy on mouse selection finish (mouseup)
+    // Auto-copy immediately on mouse selection finish (mouseup)
     container.addEventListener("mouseup", () => {
-      setTimeout(() => {
-        const sel = term.getSelection();
-        if (sel && sel.trim().length > 0) {
-          lastSelection = sel;
-          copyTextToClipboard(sel).then(ok => {
-            if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
-          });
+      const sel = term.getSelection() || lastSelection;
+      if (sel && sel.trim().length > 0) {
+        lastSelection = sel;
+        const ok = copyTextToClipboard(sel);
+        if (ok) {
+          showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
         }
-      }, 10);
+      }
     });
 
     // Native browser copy event interception (Ctrl+C, browser edit menu)
     document.addEventListener("copy", (e) => {
+      const activeTag = document.activeElement ? document.activeElement.tagName : "";
+      if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
+        return; // Don't interfere with form/fallback inputs
+      }
       const sel = term.getSelection() || lastSelection;
       if (sel && sel.trim().length > 0) {
         e.preventDefault();
@@ -548,14 +536,15 @@
       const isCtrl = event.ctrlKey || event.metaKey;
       const isC = event.key === "c" || event.key === "C";
       if (isCtrl && isC) {
-        const sel = term.getSelection() || (event.shiftKey ? lastSelection : "");
+        const sel = term.getSelection() || lastSelection;
         if (sel && sel.trim().length > 0) {
-          copyTextToClipboard(sel).then(ok => {
-            if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
-          });
+          const ok = copyTextToClipboard(sel);
+          if (ok) {
+            showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
+          }
           return false; // Prevent sending SIGINT (\x03) when user intends to copy
         }
-        // If no selection and no shiftKey, let Ctrl+C pass to shell as SIGINT
+        // If no selection, let Ctrl+C pass to shell as SIGINT
         return true;
       }
 
@@ -576,24 +565,14 @@
       return true;
     });
 
-    container.oncontextmenu = async (e) => {
+    container.oncontextmenu = (e) => {
       e.preventDefault();
       const sel = term.getSelection() || lastSelection;
       if (sel && sel.trim().length > 0) {
-        const ok = await copyTextToClipboard(sel);
+        const ok = copyTextToClipboard(sel);
         if (ok) showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
       } else {
-        try {
-          if (navigator.clipboard && navigator.clipboard.readText) {
-            const text = await navigator.clipboard.readText();
-            if (text && ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(text);
-              showToast("Wklejono do terminala!");
-            }
-          }
-        } catch (err) {
-          console.warn(err);
-        }
+        pasteClipboard();
       }
     };
 
@@ -652,12 +631,12 @@
     });
 
 
-    async function copySelection() {
+    function copySelection() {
       const text = term.getSelection() || lastSelection;
       if (text && text.trim().length > 0) {
-        const ok = await copyTextToClipboard(text);
+        const ok = copyTextToClipboard(text);
         if (ok) {
-          showToast(`Skopiowano (${text.length} znaków) do schowka!`);
+          showToast(`Skopiowano (${text.length} zn.) do schowka!`);
         } else {
           showToast("Błąd kopiowania.");
         }

@@ -176,6 +176,11 @@ def start_profile_session(
         ["tmux", "set-option", "-t", session_name, "status", "off"],
         check=False
     )
+    # Strictly disable tmux mouse capture so browser/xterm has 100% native mouse selection and copy
+    subprocess.run(
+        ["tmux", "set-option", "-t", session_name, "mouse", "off"],
+        check=False
+    )
     title = f"{profile} | {conversation_uuid or 'NEW'}"
     subprocess.run(
         ["tmux", "rename-window", "-t", session_name, title],
