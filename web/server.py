@@ -331,9 +331,9 @@ def switch_session(req: SwitchRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/terminal/quota/{profile}")
-def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None):
+def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None, session: Optional[str] = None):
     """
-    Zwraca bieżący limit tokenów oraz aktywny model sesji dla wskazanego profilu / okna konsoli.
+    Zwraca bieżący limit tokenów, aktywny model oraz katalog roboczy sesji (cwd) dla wskazanego profilu / okna konsoli.
     Dynamicznie wykrywa, czy użytkownik przełączył się na Gemini czy Claude.
     """
     try:
@@ -342,12 +342,37 @@ def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None):
             best_p, _ = pool_router.get_best_profile()
             actual_profile = best_p
 
+        cwd = None
+        target_session = session
+        if not target_session:
+            if actual_profile == "bash":
+                target_session = "agy-bash"
+            elif uuid:
+                target_session = f"agy-{actual_profile}-{uuid[:8]}"
+            else:
+                target_session = f"agy-{actual_profile}"
+
+        if target_session:
+            try:
+                res = subprocess.run(
+                    ["tmux", "display-message", "-p", "-t", target_session, "#{pane_current_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    cwd = res.stdout.strip()
+            except Exception:
+                pass
+
         if actual_profile in ["claude", "codex", "bash"]:
             engines = core.get_engines_status()
             eng = next((e for e in engines if e["id"] == actual_profile), None)
             return {
                 "status": "ok",
                 "profile": actual_profile,
+                "session": target_session,
+                "cwd": cwd,
                 "email": eng.get("email") if eng else None,
                 "active_model": eng.get("name") if eng else actual_profile.capitalize(),
                 "active_family": actual_profile,
@@ -376,6 +401,8 @@ def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None):
         return {
             "status": "ok",
             "profile": actual_profile,
+            "session": target_session,
+            "cwd": cwd,
             "email": email,
             "active_model": active_model or "Gemini 3.1 Pro (Domyślny)",
             "active_family": active_family,
@@ -609,7 +636,7 @@ async def websocket_terminal(
     subprocess.run(["tmux", "set-option", "-t", session_name, "window-size", "latest"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "aggressive-resize", "on"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-t", session_name, "status", "off"], capture_output=True, check=False)
-    subprocess.run(["tmux", "set-window-option", "-t", session_name, "pane-border-status", "off"], capture_output=True, check=False)
+    subprocess.run(["tmux", "set-window-option", "-t", session_name, "pane-border-status", "top"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-s", "terminal-overrides", "xterm*:csr@:il@:il1@:dl@:dl1@:rin@:indn@"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "on"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "mode-style", "bg=colour237,fg=colour111"], capture_output=True, check=False)

@@ -447,6 +447,7 @@
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="width: 10px; height: 10px; border-radius: 50%; background: #3fb950;"></span>
           <strong id="term-modal-title" style="font-family: var(--font-mono); font-size: 14px;">Terminal Web</strong>
+          <span id="term-modal-cwd" class="badge" style="display: none; font-family: var(--font-mono); font-size: 11px; background: rgba(56, 139, 253, 0.15); color: #79c0ff; border: 1px solid rgba(56, 139, 253, 0.35); border-radius: 4px; padding: 2px 8px; cursor: pointer;" title="Bieżący katalog sesji (kliknij aby skopiować)" onclick="copyModalCwd()">📁 ~</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Zaznacz aby skopiować · Prawy przycisk myszy lub Ctrl+V aby wkleić</span>
@@ -1334,11 +1335,33 @@
       }
     }
 
+    let modalCurrentCwd = '';
+    function copyModalCwd() {
+      if (modalCurrentCwd) {
+        copyTextToClipboard(modalCurrentCwd);
+        showToast(`Skopiowano katalog: ${modalCurrentCwd}`);
+      }
+    }
+
     // Interactive xterm.js Web Console
     function openTerminal(profile, sessionName = null, uuid = null) {
       currentProfileTerminal = profile;
       const sessLabel = sessionName || (uuid ? `agy-${profile}-${uuid.substring(0,8)}` : `agy-${profile}`);
-      document.getElementById('term-modal-title').innerText = `Konsola interaktywna: ${profile} (${sessLabel})`;
+      document.getElementById('term-modal-title').innerText = `Konsola: ${profile} (${sessLabel})`;
+      const modalCwdEl = document.getElementById('term-modal-cwd');
+      if (modalCwdEl) modalCwdEl.style.display = 'none';
+
+      fetch(`/api/terminal/quota/${profile}?uuid=${encodeURIComponent(uuid || '')}&session=${encodeURIComponent(sessLabel)}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.cwd && modalCwdEl) {
+            modalCurrentCwd = d.cwd;
+            modalCwdEl.innerText = `📁 ${d.cwd}`;
+            modalCwdEl.title = `Bieżący katalog sesji: ${d.cwd} (kliknij aby skopiować)`;
+            modalCwdEl.style.display = 'inline-flex';
+          }
+        }).catch(() => {});
+
       document.getElementById('terminal-modal').style.display = 'flex';
 
       const container = document.getElementById('terminal-container');

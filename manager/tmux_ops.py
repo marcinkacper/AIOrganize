@@ -177,7 +177,7 @@ def start_profile_session(
         check=False
     )
     subprocess.run(
-        ["tmux", "set-window-option", "-t", session_name, "pane-border-status", "off"],
+        ["tmux", "set-window-option", "-t", session_name, "pane-border-status", "top"],
         check=False
     )
     subprocess.run(

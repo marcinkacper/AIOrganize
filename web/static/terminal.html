@@ -158,6 +158,26 @@
       border-radius: 4px;
     }
 
+    .header-cwd-badge {
+      background: rgba(56, 139, 253, 0.12);
+      color: #79c0ff;
+      border: 1px solid rgba(56, 139, 253, 0.3);
+      font-size: 10px;
+      font-weight: 500;
+      padding: 1px 7px;
+      cursor: pointer;
+      max-width: 340px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: all 0.15s ease;
+    }
+    .header-cwd-badge:hover {
+      background: rgba(56, 139, 253, 0.22);
+      border-color: rgba(56, 139, 253, 0.55);
+      color: #a5d6ff;
+    }
+
     .title-email-text {
       font-size: 9px;
       color: var(--text-muted);
@@ -257,6 +277,7 @@
         <div class="header-info-top">
           <span id="title-profile" class="title-profile-text">Console</span>
           <span class="header-badge" id="title-tmux">tmux</span>
+          <span class="header-badge header-cwd-badge" id="title-cwd" style="display: none;" title="Bieżący katalog sesji (kliknij aby skopiować)" onclick="copyCwd()">📁 ~</span>
         </div>
         <div class="header-info-bottom">
           <span id="title-email" class="title-email-text">-</span>
@@ -323,25 +344,44 @@
       }
     });
 
-    async function updateTerminalQuota() {
-      if (profile === "bash") {
-        document.getElementById("title-profile").innerText = "Bash Shell";
-        document.getElementById("title-email").innerText = "kacper@ferrari";
-        const qEl = document.getElementById("title-quota");
-        qEl.innerText = "💻 Server";
-        qEl.className = "header-quota-badge";
-        return;
+    let currentCwd = "";
+    function copyCwd() {
+      if (currentCwd) {
+        copyTextToClipboard(currentCwd);
+        showToast(`Skopiowano katalog: ${currentCwd}`);
       }
+    }
 
+    async function updateTerminalQuota() {
       try {
-        const res = await fetch(`/api/terminal/quota/${profile}?uuid=${encodeURIComponent(uuid || "")}`);
+        const res = await fetch(`/api/terminal/quota/${profile}?uuid=${encodeURIComponent(uuid || "")}&session=${encodeURIComponent(session || "")}`);
         if (!res.ok) return;
         const d = await res.json();
+
+        if (d.cwd) {
+          currentCwd = d.cwd;
+          const cwdEl = document.getElementById("title-cwd");
+          if (cwdEl) {
+            cwdEl.innerText = `📁 ${d.cwd}`;
+            cwdEl.title = `Bieżący katalog: ${d.cwd} (kliknij aby skopiować)`;
+            cwdEl.style.display = "inline-flex";
+          }
+          const folderName = d.cwd.split("/").filter(Boolean).pop() || d.cwd;
+          document.title = `[${folderName}] ${session} - Antigravity Console`;
+        }
+
+        if (profile === "bash") {
+          document.getElementById("title-profile").innerText = "Bash Shell";
+          document.getElementById("title-email").innerText = "kacper@ferrari";
+          const qEl = document.getElementById("title-quota");
+          qEl.innerText = "💻 Server";
+          qEl.className = "header-quota-badge";
+          return;
+        }
 
         if (d.email) {
           const detail = shortUuid ? `${d.email} · ${shortUuid}` : d.email;
           document.getElementById("title-email").innerText = detail;
-          document.title = `[${profile}] ${detail} - Console`;
         }
 
         const qEl = document.getElementById("title-quota");
