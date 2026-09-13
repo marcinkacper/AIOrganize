@@ -287,8 +287,8 @@
     </div>
 
     <div class="header-actions">
-      <button class="btn" onmousedown="event.preventDefault()" onclick="copySelection()" title="Kopiuj zaznaczenie (Ctrl+C gdy zaznaczono)">📋 Kopiuj</button>
-      <button class="btn" onmousedown="event.preventDefault()" onclick="pasteClipboard()" title="Wklej ze schowka (Ctrl+V)">📥 Wklej</button>
+      <button class="btn" onmousedown="event.preventDefault()" onclick="copySelection()" title="Kopiuj zaznaczenie (Zaznacz z Shiftem lub Ctrl+Shift+C)">📋 Kopiuj</button>
+      <button class="btn" onmousedown="event.preventDefault()" onclick="pasteClipboard()" title="Wklej ze schowka (Ctrl+V lub Shift+Prawy przycisk)">📥 Wklej</button>
       <button class="btn" onclick="sendKey('\x03')" title="Przerwij aktywne polecenie (SIGINT - Ctrl+C)">⛔ Ctrl+C</button>
       <button class="btn" onclick="sendKey('\x04')" title="Wyślij sygnał końca (Ctrl+D / Exit)">⏻ Ctrl+D</button>
       <button class="btn" onclick="clearTerm()" title="Wyczyść ekran terminala">🧹</button>
@@ -408,7 +408,10 @@
 
     updateTerminalQuota();
     setInterval(updateTerminalQuota, 3500);
-    window.addEventListener("focus", updateTerminalQuota);
+    window.addEventListener("focus", () => {
+      updateTerminalQuota();
+      if (term) term.focus();
+    });
 
     function showToast(msg) {
       const t = document.getElementById("toast");
@@ -439,28 +442,7 @@
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);
-
-    // Register OSC 52 clipboard handler (captures tmux mouse copy-pipe directly)
-    term.parser.registerOscHandler(52, (data) => {
-      try {
-        const idx = data.indexOf(";");
-        const b64 = idx >= 0 ? data.slice(idx + 1) : data;
-        let text = "";
-        try {
-          text = decodeURIComponent(escape(atob(b64.trim())));
-        } catch (_) {
-          text = atob(b64.trim());
-        }
-        if (text && text.length > 0) {
-          lastSelection = text;
-          copyTextToClipboard(text);
-          showToast(`Skopiowano (${text.length} zn.) do schowka!`);
-        }
-      } catch (err) {
-        console.warn("OSC 52 decode error:", err);
-      }
-      return true;
-    });
+    setTimeout(() => { try { term.focus(); } catch (_) {} }, 50);
 
     let lastCols = 0;
     let lastRows = 0;
@@ -538,19 +520,19 @@
       return fallbackCopyText(text);
     }
 
-    // Keep track of active selection smoothly without stealing focus
-    term.onSelectionChange(() => {
-      if (term.hasSelection()) {
-        const s = term.getSelection();
-        if (s && s.trim().length > 0) {
-          lastSelection = s;
+    // Zaznaczanie i kopiowanie tekstu TYLKO z klawiszem Shift
+    // Kliknięcie bez Shiftu nie zaznacza tekstu i nie nadpisuje schowka, tylko od razu daje gotowość do wprowadzania tekstu
+    container.addEventListener("mousedown", (e) => {
+      if (!e.shiftKey) {
+        if (term.hasSelection()) {
+          term.clearSelection();
         }
       }
+      term.focus();
     });
 
-    // Auto-copy immediately on mouse selection finish (mouseup) - only if text was actually selected
-    container.addEventListener("mouseup", () => {
-      if (term.hasSelection()) {
+    container.addEventListener("mouseup", (e) => {
+      if (e.shiftKey && term.hasSelection()) {
         const sel = term.getSelection();
         if (sel && sel.trim().length > 0) {
           lastSelection = sel;
@@ -558,6 +540,27 @@
           if (ok) {
             showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
           }
+        }
+      } else if (!e.shiftKey) {
+        if (term.hasSelection()) {
+          term.clearSelection();
+        }
+      }
+      term.focus();
+    });
+
+    container.addEventListener("click", (e) => {
+      if (!e.shiftKey && term.hasSelection()) {
+        term.clearSelection();
+      }
+      term.focus();
+    });
+
+    term.onSelectionChange(() => {
+      if (term.hasSelection()) {
+        const s = term.getSelection();
+        if (s && s.trim().length > 0) {
+          lastSelection = s;
         }
       }
     });
@@ -629,11 +632,13 @@
       return true;
     });
 
-    // Right-click paste (standard Linux/PuTTY terminal behavior)
-    container.oncontextmenu = (e) => {
+    // Prawy przycisk myszy: wklejanie TYLKO z Shiftem (Shift + prawy przycisk myszy)
+    container.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      pasteClipboard();
-    };
+      if (e.shiftKey) {
+        pasteClipboard();
+      }
+    });
 
     window.addEventListener("paste", (e) => {
       const isTermTextarea = term && term.textarea && (e.target === term.textarea || (e.composedPath && e.composedPath().includes(term.textarea)));

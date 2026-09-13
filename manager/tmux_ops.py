@@ -194,6 +194,19 @@ def start_profile_session(
         check=False
     )
     subprocess.run(
+        ["tmux", "set-option", "-t", session_name, "set-clipboard", "off"],
+        check=False
+    )
+    # Never allow tmux to capture mouse dragging or select text without Shift
+    subprocess.run(["tmux", "unbind-key", "-T", "root", "MouseDrag1Pane"], check=False)
+    subprocess.run(["tmux", "unbind-key", "-T", "copy-mode", "MouseDrag1Pane"], check=False)
+    subprocess.run(["tmux", "unbind-key", "-T", "copy-mode", "MouseDragEnd1Pane"], check=False)
+    subprocess.run(["tmux", "unbind-key", "-T", "copy-mode-vi", "MouseDrag1Pane"], check=False)
+    subprocess.run(["tmux", "unbind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane"], check=False)
+    # Clicking in copy mode immediately cancels copy mode and returns to normal prompt
+    subprocess.run(["tmux", "bind-key", "-T", "copy-mode", "MouseDown1Pane", "send-keys", "-X", "cancel"], check=False)
+    subprocess.run(["tmux", "bind-key", "-T", "copy-mode-vi", "MouseDown1Pane", "send-keys", "-X", "cancel"], check=False)
+    subprocess.run(
         ["tmux", "set-window-option", "-t", session_name, "mode-style", "bg=colour237,fg=colour111"],
         check=False
     )

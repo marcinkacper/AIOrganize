@@ -450,9 +450,9 @@
           <span id="term-modal-cwd" class="badge" style="display: none; font-family: var(--font-mono); font-size: 11px; background: rgba(56, 139, 253, 0.15); color: #79c0ff; border: 1px solid rgba(56, 139, 253, 0.35); border-radius: 4px; padding: 2px 8px; cursor: pointer;" title="Bieżący katalog sesji (kliknij aby skopiować)" onclick="copyModalCwd()">📁 ~</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Zaznacz aby skopiować · Prawy przycisk myszy lub Ctrl+V aby wkleić</span>
-          <button class="btn btn-sm" onclick="copyTerminalSelection()" title="Kopiuj zaznaczony tekst">📋 Kopiuj</button>
-          <button class="btn btn-sm" onclick="pasteToTerminal()" title="Wklej ze schowka">📥 Wklej</button>
+          <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Shift+zaznacz = kopiuj · Shift+Prawy lub Ctrl+V = wklej</span>
+          <button class="btn btn-sm" onclick="copyTerminalSelection()" title="Kopiuj zaznaczenie (Zaznacz z Shiftem lub Ctrl+Shift+C)">📋 Kopiuj</button>
+          <button class="btn btn-sm" onclick="pasteToTerminal()" title="Wklej ze schowka (Ctrl+V lub Shift+Prawy przycisk)">📥 Wklej</button>
           <button class="btn btn-sm" onclick="toggleModalFullscreen()" id="btn-modal-fullscreen" title="Przełącz pełny ekran">⛶ Pełny ekran</button>
           <button class="btn btn-sm" onclick="popOutCurrentTerminal()" title="Otwórz w osobnym oknie">⧉ Osobne okno</button>
           <button class="btn btn-sm" onclick="sendTerminalKey('\x03')">Ctrl+C</button>
@@ -1380,6 +1380,7 @@
       fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(container);
+      setTimeout(() => { try { term.focus(); } catch (_) {} }, 50);
 
       let modalLastCols = 0;
       let modalLastRows = 0;
@@ -1423,41 +1424,19 @@
 
       let modalLastSelection = '';
 
-      // Register OSC 52 clipboard handler (captures tmux mouse copy directly)
-      term.parser.registerOscHandler(52, (data) => {
-        try {
-          const idx = data.indexOf(';');
-          const b64 = idx >= 0 ? data.slice(idx + 1) : data;
-          let text = '';
-          try {
-            text = decodeURIComponent(escape(atob(b64.trim())));
-          } catch (_) {
-            text = atob(b64.trim());
-          }
-          if (text && text.length > 0) {
-            modalLastSelection = text;
-            copyTextToClipboard(text);
-            showToast(`Skopiowano (${text.length} zn.) do schowka!`);
-          }
-        } catch (err) {
-          console.warn('OSC 52 decode error:', err);
-        }
-        return true;
-      });
-
-      // Keep track of active selection smoothly without stealing focus
-      term.onSelectionChange(() => {
-        if (term.hasSelection()) {
-          const s = term.getSelection();
-          if (s && s.trim().length > 0) {
-            modalLastSelection = s;
+      // Zaznaczanie i kopiowanie tekstu TYLKO z klawiszem Shift
+      // Kliknięcie bez Shiftu nie zaznacza tekstu i nie nadpisuje schowka, tylko od razu daje gotowość do wprowadzania tekstu
+      container.addEventListener('mousedown', (e) => {
+        if (!e.shiftKey) {
+          if (term.hasSelection()) {
+            term.clearSelection();
           }
         }
+        term.focus();
       });
 
-      // Auto-copy immediately on mouse selection finish (mouseup) - only if text was actually selected
-      container.addEventListener('mouseup', () => {
-        if (term.hasSelection()) {
+      container.addEventListener('mouseup', (e) => {
+        if (e.shiftKey && term.hasSelection()) {
           const sel = term.getSelection();
           if (sel && sel.trim().length > 0) {
             modalLastSelection = sel;
@@ -1465,6 +1444,27 @@
             if (ok) {
               showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
             }
+          }
+        } else if (!e.shiftKey) {
+          if (term.hasSelection()) {
+            term.clearSelection();
+          }
+        }
+        term.focus();
+      });
+
+      container.addEventListener('click', (e) => {
+        if (!e.shiftKey && term.hasSelection()) {
+          term.clearSelection();
+        }
+        term.focus();
+      });
+
+      term.onSelectionChange(() => {
+        if (term.hasSelection()) {
+          const s = term.getSelection();
+          if (s && s.trim().length > 0) {
+            modalLastSelection = s;
           }
         }
       });
@@ -1493,7 +1493,7 @@
               if (ok) {
                 showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
               }
-              return false;
+              return false; // Handled copy, do not send SIGINT
             }
           }
           // If no selection, let Ctrl+C pass to shell as SIGINT (\x03)
@@ -1510,11 +1510,13 @@
         return true;
       });
 
-      // Right-click paste (standard Linux/PuTTY terminal behavior)
-      container.oncontextmenu = (e) => {
+      // Prawy przycisk myszy: wklejanie TYLKO z Shiftem (Shift + prawy przycisk myszy)
+      container.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        pasteToTerminal();
-      };
+        if (e.shiftKey) {
+          pasteToTerminal();
+        }
+      });
 
       // Browser native paste support
       window.addEventListener('paste', (e) => {
