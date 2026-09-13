@@ -471,7 +471,7 @@
           <th>Katalog / Projekt</th>
           <th>Kroki</th>
           <th>Rozmiar</th>
-          <th>Zmodyfikowano</th>
+          <th>Aktywność / Start</th>
           <th>Tytuł / Podgląd</th>
           <th>Akcje</th>
         </tr>
@@ -839,6 +839,12 @@
         }
 
         const cwdDisplay = b.cwd ? `<div style="font-size: 11px; color: #79c0ff; margin-top: 3px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${b.cwd}">📁 ${b.cwd}</div>` : '';
+        const startDisplay = b.started_at ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">🕒 Start sesji: <span class="mono-val" style="color: #79c0ff;">${b.started_at}</span></div>` : '';
+        const consoleDisplay = b.tmux_active 
+          ? (b.console_active && (b.console_hosts || []).length > 0
+              ? `<div style="font-size: 11px; margin-top: 3px;">Konsola: <span class="badge-pill" style="font-size: 10px; font-weight: 600; background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid rgba(46,160,67,0.4);">👁️ Otwarta na: <strong>${b.console_hosts.join(', ')}</strong></span></div>`
+              : `<div style="font-size: 11px; margin-top: 3px;">Konsola: <span class="badge-pill" style="font-size: 10px; color: var(--text-muted); border: 1px solid var(--card-border);">💤 W tle (odłączona)</span></div>`)
+          : '';
 
         card.innerHTML = `
           <div class="profile-card-header">
@@ -851,6 +857,8 @@
           <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
             <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Sesja powłoki Bash</div>
             ${cwdDisplay}
+            ${startDisplay}
+            ${consoleDisplay}
             <div style="font-size: 11px; color: #3fb950; margin-top: 4px; font-family: var(--font-mono);">tmux: ${b.tmux_session || 'agy-' + b.id}</div>
           </div>
           <div class="profile-card-actions" style="margin-top: 12px;">
@@ -1084,10 +1092,16 @@
                 <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #58a6ff;">#${idx+1} ${s.session_name}</span>
                 <span style="font-size: 10px; color: var(--text-muted);">PID: ${s.pid || '-'}</span>
               </div>
-              <div style="font-size: 11px; margin-top: 2px;">
-                UUID: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s.conversation_uuid}'); showToast('Skopiowano UUID: ${s.conversation_uuid}');">${sUuidShort}</span>
-                ${s.machine ? `<span class="badge-pill badge-purple" style="font-size: 9px; padding: 1px 5px; margin-left: 6px;">🖥️ ${s.machine}</span>` : ''}
+              <div style="font-size: 11px; margin-top: 2px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px;">
+                <div>
+                  UUID: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s.conversation_uuid}'); showToast('Skopiowano UUID: ${s.conversation_uuid}');">${sUuidShort}</span>
+                  ${s.machine ? `<span class="badge-pill badge-purple" style="font-size: 9px; padding: 1px 5px; margin-left: 6px;">🖥️ ${s.machine}</span>` : ''}
+                </div>
+                ${s.console_active && (s.console_hosts || []).length > 0
+                  ? `<span class="badge-pill" style="font-size: 9px; font-weight: 600; background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid rgba(46,160,67,0.4);" title="Otwarte okno konsoli">👁️ ${s.console_hosts.join(', ')}</span>`
+                  : `<span class="badge-pill" style="font-size: 9px; color: var(--text-muted); border: 1px solid var(--card-border);" title="Sesja w tle">💤 W tle</span>`}
               </div>
+              ${s.started_at ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">🕒 Start sesji: <span style="color: #c9d1d9;">${s.started_at}</span></div>` : ''}
               ${s.directory ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.directory}">📁 ${s.directory}</div>` : ''}
               <div style="display: flex; gap: 4px; margin-top: 5px;">
                 <button class="btn btn-sm btn-console" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminalWindow('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⧉ Okno</button>
@@ -1107,6 +1121,14 @@
         metaHtml = `
           <div>PID: <span class="mono-val">${s0.pid || '-'}</span></div>
           <div>Aktywne UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
+          ${s0.started_at ? `<div>Rozpoczęto: <span class="mono-val" style="color: #79c0ff;">${s0.started_at}</span></div>` : ''}
+          ${p.tmux_active ? `
+            <div style="margin-top: 3px; font-size: 11px;">Podgląd konsoli: 
+              ${s0.console_active && (s0.console_hosts || []).length > 0
+                ? `<span class="badge-pill" style="font-size: 10px; font-weight: 600; background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid rgba(46,160,67,0.4);">👁️ Otwarta na: <strong>${s0.console_hosts.join(', ')}</strong></span>`
+                : `<span class="badge-pill" style="font-size: 10px; color: var(--text-muted); border: 1px solid var(--card-border);">💤 W tle (odłączona)</span>`}
+            </div>
+          ` : ''}
           ${s0.machine ? `<div style="margin-top: 3px;">Maszyna: <span class="badge-pill badge-purple" style="font-size: 10px; padding: 2px 7px;">🖥️ ${s0.machine}</span></div>` : ''}
           ${s0.directory ? `<div style="margin-top: 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s0.directory}">Katalog: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s0.directory}'); showToast('Skopiowano ścieżkę!');">📁 ${s0.directory}</span></div>` : ''}
         `;
@@ -1149,8 +1171,9 @@
       }
 
       const sessions = p.sessions || [];
-      let sessionBadge = sessions.length > 0
-        ? `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`
+      const s0 = sessions.length > 0 ? sessions[0] : null;
+      let sessionBadge = s0
+        ? `<span class="badge-pill badge-blue">tmux: ${s0.session_name}</span>`
         : '<span class="badge-pill badge-gray">Bezczynny</span>';
 
       let quotaHtml = '';
@@ -1187,12 +1210,11 @@
 
       let buttons = '';
       if (p.logged_in) {
-        if (sessions.length === 0) {
+        if (!s0) {
           buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
           buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
           buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
         } else {
-          const s0 = sessions[0];
           buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
           buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}')">⌨ Modal</button>`;
           buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
@@ -1221,8 +1243,16 @@
           ${quotaHtml}
           <div class="profile-meta">
             <div>Silnik: <span class="mono-val" style="color: #d2a8ff;">Anthropic Claude Code</span></div>
-            <div>Sesja tmux: <span class="mono-val">agy-${p.name}</span></div>
+            <div>Sesja tmux: <span class="mono-val">${s0 ? s0.session_name : `agy-${p.name}`}</span></div>
             ${p.pid ? `<div>PID: <span class="mono-val">${p.pid}</span></div>` : ''}
+            ${(s0 && s0.started_at) || p.started_at ? `<div>Rozpoczęto: <span class="mono-val" style="color: #79c0ff;">${(s0 && s0.started_at) || p.started_at}</span></div>` : ''}
+            ${p.tmux_active ? `
+              <div style="margin-top: 3px; font-size: 11px;">Podgląd konsoli: 
+                ${((s0 && s0.console_active) || p.console_active) && (((s0 && s0.console_hosts) || p.console_hosts) || []).length > 0
+                  ? `<span class="badge-pill" style="font-size: 10px; font-weight: 600; background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid rgba(46,160,67,0.4);">👁️ Otwarta na: <strong>${((s0 && s0.console_hosts) || p.console_hosts).join(', ')}</strong></span>`
+                  : `<span class="badge-pill" style="font-size: 10px; color: var(--text-muted); border: 1px solid var(--card-border);">💤 W tle (odłączona)</span>`}
+              </div>
+            ` : ''}
           </div>
         </div>
         <div class="profile-actions">${buttons}</div>
@@ -1244,8 +1274,9 @@
       }
 
       const sessions = p.sessions || [];
-      let sessionBadge = sessions.length > 0
-        ? `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`
+      const s0 = sessions.length > 0 ? sessions[0] : null;
+      let sessionBadge = s0
+        ? `<span class="badge-pill badge-blue">tmux: ${s0.session_name}</span>`
         : '<span class="badge-pill badge-gray">Bezczynny</span>';
 
       let quotaHtml = '';
@@ -1270,12 +1301,11 @@
 
       let buttons = '';
       if (p.logged_in) {
-        if (sessions.length === 0) {
+        if (!s0) {
           buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
           buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
           buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
         } else {
-          const s0 = sessions[0];
           buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
           buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}')">⌨ Modal</button>`;
           buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
@@ -1304,8 +1334,16 @@
           ${quotaHtml}
           <div class="profile-meta">
             <div>Silnik: <span class="mono-val" style="color: #7ee787;">OpenAI Codex CLI</span></div>
-            <div>Sesja tmux: <span class="mono-val">agy-${p.name}</span></div>
+            <div>Sesja tmux: <span class="mono-val">${s0 ? s0.session_name : `agy-${p.name}`}</span></div>
             ${p.pid ? `<div>PID: <span class="mono-val">${p.pid}</span></div>` : ''}
+            ${(s0 && s0.started_at) || p.started_at ? `<div>Rozpoczęto: <span class="mono-val" style="color: #79c0ff;">${(s0 && s0.started_at) || p.started_at}</span></div>` : ''}
+            ${p.tmux_active ? `
+              <div style="margin-top: 3px; font-size: 11px;">Podgląd konsoli: 
+                ${((s0 && s0.console_active) || p.console_active) && (((s0 && s0.console_hosts) || p.console_hosts) || []).length > 0
+                  ? `<span class="badge-pill" style="font-size: 10px; font-weight: 600; background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid rgba(46,160,67,0.4);">👁️ Otwarta na: <strong>${((s0 && s0.console_hosts) || p.console_hosts).join(', ')}</strong></span>`
+                  : `<span class="badge-pill" style="font-size: 10px; color: var(--text-muted); border: 1px solid var(--card-border);">💤 W tle (odłączona)</span>`}
+              </div>
+            ` : ''}
           </div>
         </div>
         <div class="profile-actions">${buttons}</div>
@@ -1527,6 +1565,15 @@
           ? `<span class="badge-pill badge-green" style="font-size: 11px; font-weight: 700; margin-right: 6px; padding: 2px 8px; box-shadow: 0 0 6px rgba(63,185,80,0.35);"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3fb950;margin-right:4px;box-shadow:0 0 4px #3fb950;"></span>ONLINE: ${c.online_profile || 'aktywna'}</span>`
           : '';
 
+        let viewerBadge = '';
+        if (isOnline) {
+          if (c.console_active && (c.console_hosts || []).length > 0) {
+            viewerBadge = `<span class="badge-pill" style="font-size: 11px; font-weight: 600; background: rgba(46,160,67,0.25); color: #3fb950; border: 1px solid rgba(46,160,67,0.5); margin-right: 6px; padding: 2px 8px;" title="Konsola jest aktywnie podłączona/oglądana na: ${c.console_hosts.join(', ')}">👁️ Otwarta na: <strong>${c.console_hosts.join(', ')}</strong></span>`;
+          } else {
+            viewerBadge = `<span class="badge-pill" style="font-size: 11px; color: var(--text-muted); border: 1px solid var(--card-border); margin-right: 6px; padding: 2px 8px;" title="Sesja działa w tle (brak otwartych konsol)">💤 W tle</span>`;
+          }
+        }
+
         let actionButtons = '';
         if (isOnline) {
           const prof = c.online_profile || 'best';
@@ -1547,6 +1594,12 @@
           `;
         }
 
+        const dateHtml = `
+          <div title="Ostatnia aktywność (mtime)"><span style="color: var(--text-muted);">Akt:</span> ${mtime || '-'}</div>
+          ${c.created_at ? `<div title="Początek rozmowy" style="color: #8b949e; margin-top: 2px;"><span style="color: var(--text-muted);">Start:</span> ${c.created_at}</div>` : ''}
+          ${isOnline && c.session_started_at ? `<div title="Start bieżącej sesji tmux" style="color: #79c0ff; margin-top: 2px;"><span style="color: #58a6ff;">Sesja:</span> ${c.session_started_at}</div>` : ''}
+        `;
+
         tr.innerHTML = `
           <td style="font-family: var(--font-mono); font-size: 12px;">
             <span class="mono-val" style="cursor: pointer; color: #58a6ff;" title="Pełny UUID: ${c.uuid} (Kliknij, aby skopiować)" onclick="copyTextToClipboard('${c.uuid}'); showToast('Skopiowano UUID: ${c.uuid}');">${highlightedUuid}</span>
@@ -1559,8 +1612,8 @@
           </td>
           <td>${c.steps}</td>
           <td>${sizeKb}</td>
-          <td>${mtime}</td>
-          <td>${onlineBadge}${agentBadge}${highlightedTitle} ${walBadge}</td>
+          <td style="font-size: 11px; white-space: nowrap;">${dateHtml}</td>
+          <td>${onlineBadge}${viewerBadge}${agentBadge}${highlightedTitle} ${walBadge}</td>
           <td>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
               ${actionButtons}

@@ -794,12 +794,73 @@ def get_lock_status(uuid_str: str) -> Dict[str, Any]:
         "lock_file": lock_file
     }
 
+def get_tmux_sessions_info() -> Dict[str, Dict[str, Any]]:
+    """
+    Returns mapping of tmux session_name -> {
+        "created_at": "YYYY-MM-DD HH:MM:SS",
+        "created_epoch": int,
+        "attached_count": int
+    }
+    """
+    try:
+        res = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}|#{session_created}|#{session_attached}"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        info = {}
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                parts = line.strip().split("|")
+                if len(parts) >= 3:
+                    sname, created, attached = parts[0], parts[1], parts[2]
+                    try:
+                        dt = datetime.fromtimestamp(int(created)).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        dt = None
+                    info[sname] = {
+                        "created_at": dt,
+                        "created_epoch": int(created) if created.isdigit() else None,
+                        "attached_count": int(attached) if attached.isdigit() else 0
+                    }
+        return info
+    except Exception:
+        return {}
+
+def get_pid_ssh_client_ip(pid: int) -> Optional[str]:
+    """
+    Inspects process environ and ancestor processes to extract SSH_CONNECTION or SSH_CLIENT IP.
+    """
+    curr = pid
+    for _ in range(5):
+        try:
+            with open(f"/proc/{curr}/environ", "rb") as f:
+                env_raw = f.read().split(b"\x00")
+            for item in env_raw:
+                if item.startswith(b"SSH_CONNECTION=") or item.startswith(b"SSH_CLIENT="):
+                    val = item.decode("utf-8", errors="replace").split("=", 1)[1]
+                    parts = val.strip().split()
+                    if parts:
+                        return parts[0]
+            with open(f"/proc/{curr}/status", "r") as sf:
+                for line in sf:
+                    if line.startswith("PPid:"):
+                        curr = int(line.split()[1])
+                        break
+        except Exception:
+            break
+    return None
+
 def get_active_sessions() -> List[Dict[str, Any]]:
     """
-    Returns running agy processes per profile and their active conversation UUIDs.
+    Returns running agy processes per profile and their active conversation UUIDs,
+    including start timestamp and tmux attachment count.
     """
     active = []
     tmux_pid_to_session = {}
+    tmux_info = get_tmux_sessions_info()
+
     try:
         t_res = subprocess.run(
             ["tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_pid}"],
@@ -875,6 +936,8 @@ def get_active_sessions() -> List[Dict[str, Any]]:
             elif not sess_name:
                 sess_name = f"agy-{profile_name}"
 
+            t_sess_data = tmux_info.get(sess_name, {})
+
             active.append({
                 "pid": int_pid,
                 "profile": profile_name,
@@ -882,7 +945,10 @@ def get_active_sessions() -> List[Dict[str, Any]]:
                 "conversation_uuid": conv_uuid,
                 "cmdline": " ".join(cmd_args),
                 "home": home,
-                "cwd": proc_cwd
+                "cwd": proc_cwd,
+                "started_at": t_sess_data.get("created_at"),
+                "started_epoch": t_sess_data.get("created_epoch"),
+                "attached_count": t_sess_data.get("attached_count", 0)
             })
         except (PermissionError, FileNotFoundError):
             continue
@@ -1065,6 +1131,47 @@ def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
         except Exception:
             pass
 
+CONVERSATION_CREATED_AT_CACHE: Dict[str, str] = {}
+
+def get_conversation_created_at(uuid_str: str) -> Optional[str]:
+    """
+    Returns the initial creation date and time of the conversation.
+    Reads line 1 of transcript.jsonl or falls back to sqlite db ctime.
+    """
+    if not uuid_str:
+        return None
+    if uuid_str in CONVERSATION_CREATED_AT_CACHE:
+        return CONVERSATION_CREATED_AT_CACHE[uuid_str]
+
+    for base_brain in [os.path.join(SHARED_DIR, "brain"), "/home/kacper/.gemini/antigravity-cli/brain"]:
+        tr_path = os.path.join(base_brain, uuid_str, ".system_generated", "logs", "transcript.jsonl")
+        if os.path.isfile(tr_path):
+            try:
+                with open(tr_path, "r", encoding="utf-8", errors="replace") as f:
+                    line = f.readline()
+                    if line:
+                        d = json.loads(line)
+                        ca = d.get("created_at")
+                        if ca:
+                            clean = ca.replace("T", " ").replace("Z", "").split(".")[0]
+                            CONVERSATION_CREATED_AT_CACHE[uuid_str] = clean
+                            return clean
+            except Exception:
+                pass
+
+    # Fallback to .db creation timestamp
+    for base_conv in [CONVERSATIONS_DIR, "/home/kacper/.gemini/antigravity-cli/conversations"]:
+        db_path = os.path.join(base_conv, f"{uuid_str}.db")
+        if os.path.isfile(db_path):
+            try:
+                dt = datetime.fromtimestamp(os.path.getctime(db_path)).strftime("%Y-%m-%d %H:%M:%S")
+                CONVERSATION_CREATED_AT_CACHE[uuid_str] = dt
+                return dt
+            except Exception:
+                pass
+
+    return None
+
 def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
     """
     Returns mapping of conversation_uuid -> {
@@ -1072,7 +1179,10 @@ def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
         "profile": profile_name,
         "session_name": session_name,
         "cwd": cwd,
-        "cmdline": cmdline
+        "cmdline": cmdline,
+        "started_at": started_at,
+        "started_epoch": started_epoch,
+        "attached_count": attached_count
     }
     Detects online conversations from:
     1. Active agy processes in /proc (via get_active_sessions())
@@ -1089,7 +1199,10 @@ def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
                     "profile": s.get("profile"),
                     "session_name": s.get("session_name"),
                     "cwd": s.get("cwd"),
-                    "cmdline": s.get("cmdline")
+                    "cmdline": s.get("cmdline"),
+                    "started_at": s.get("started_at"),
+                    "started_epoch": s.get("started_epoch"),
+                    "attached_count": s.get("attached_count", 0)
                 }
     except Exception:
         pass
@@ -1121,7 +1234,10 @@ def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
                                 "profile": detected_prof or "best",
                                 "session_name": None,
                                 "cwd": None,
-                                "cmdline": None
+                                "cmdline": None,
+                                "started_at": None,
+                                "started_epoch": None,
+                                "attached_count": 0
                             }
     except Exception:
         pass
@@ -1305,12 +1421,19 @@ def list_conversations(
             meta["online_session"] = online_info.get("session_name")
             meta["online_pid"] = online_info.get("pid")
             meta["online_cwd"] = online_info.get("cwd")
+            meta["session_started_at"] = online_info.get("started_at")
+            meta["attached_count"] = online_info.get("attached_count", 0)
         else:
             meta["is_online"] = False
             meta["online_profile"] = None
             meta["online_session"] = None
             meta["online_pid"] = None
             meta["online_cwd"] = None
+            meta["session_started_at"] = None
+            meta["attached_count"] = 0
+
+        # Conversation initial creation timestamp
+        meta["created_at"] = get_conversation_created_at(uuid_str) or meta.get("last_modified")
 
         cat, label = classify_conversation(meta)
         meta["category"] = cat
@@ -1802,6 +1925,8 @@ def get_bash_sessions() -> List[Dict[str, Any]]:
     except Exception:
         pass
 
+    tmux_sessions_info = get_tmux_sessions_info()
+
     for s_id in slots:
         s_name = f"agy-{s_id}"
         is_active = False
@@ -1815,6 +1940,7 @@ def get_bash_sessions() -> List[Dict[str, Any]]:
         info = tmux_info.get(s_name, {})
         pid = info.get("pid")
         cwd = info.get("cwd")
+        sess_created = tmux_sessions_info.get(s_name, {}).get("created_at") if is_active else None
 
         name = "Główna Konsola Bash (bash-01)" if s_id in ("bash", "bash-01") else f"Konsola Bash ({s_id})"
         results.append({
@@ -1830,6 +1956,7 @@ def get_bash_sessions() -> List[Dict[str, Any]]:
             "tmux_session": s_name,
             "pid": pid,
             "cwd": cwd or "/home/kacper",
+            "started_at": sess_created,
             "description": "Niezależna interaktywna sesja powłoki Bash serwera"
         })
     return results

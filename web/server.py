@@ -85,6 +85,74 @@ class UnlockRequest(BaseModel):
 def favicon_route():
     return FileResponse("/srv/projects/agy/web/static/favicon.svg", media_type="image/svg+xml")
 
+# Live console viewers registry:
+# key (session_name, uuid, profile) -> list of viewer dicts:
+# [{"host": "kacper", "ip": "100.102.222.75", "connected_at": "...", "type": "web"}]
+LIVE_CONSOLE_VIEWERS: Dict[str, List[Dict[str, Any]]] = {}
+
+def get_console_attachment_status(session_name: Optional[str] = None, uuid_str: Optional[str] = None, profile_name: Optional[str] = None) -> Dict[str, Any]:
+    viewers = []
+    seen = set()
+
+    # 1. Live web terminal viewers
+    for k in [session_name, uuid_str, profile_name]:
+        if k and k in LIVE_CONSOLE_VIEWERS:
+            for v in LIVE_CONSOLE_VIEWERS[k]:
+                ident = f"{v.get('host')}:{v.get('ip')}:{v.get('type')}"
+                if ident not in seen:
+                    viewers.append(v)
+                    seen.add(ident)
+
+    # 2. Tmux clients (including SSH / local terminals attached to tmux)
+    if session_name:
+        try:
+            t_res = subprocess.run(
+                ["tmux", "list-clients", "-t", session_name, "-F", "#{client_pid}|#{client_tty}"],
+                capture_output=True,
+                text=True,
+                timeout=1
+            )
+            if t_res.returncode == 0:
+                for line in t_res.stdout.splitlines():
+                    parts = line.strip().split("|")
+                    if parts and parts[0].isdigit():
+                        c_pid = int(parts[0])
+                        # If pid is not a child of this web server process, it's external CLI / SSH
+                        is_web = False
+                        try:
+                            with open(f"/proc/{c_pid}/status", "r") as sf:
+                                for sline in sf:
+                                    if sline.startswith("PPid:") and int(sline.split()[1]) == os.getpid():
+                                        is_web = True
+                                        break
+                        except Exception:
+                            pass
+
+                        if not is_web:
+                            ssh_ip = core.get_pid_ssh_client_ip(c_pid)
+                            hname = core.resolve_machine(ssh_ip) if ssh_ip else "ferrari"
+                            ident = f"{hname}:{ssh_ip or 'cli'}:ssh"
+                            if ident not in seen:
+                                viewers.append({
+                                    "host": hname,
+                                    "ip": ssh_ip or "local",
+                                    "type": "ssh",
+                                    "connected_at": None
+                                })
+                                seen.add(ident)
+        except Exception:
+            pass
+
+    hosts = [v["host"] for v in viewers if v.get("host")]
+    unique_hosts = list(dict.fromkeys(hosts))
+    return {
+        "active": len(viewers) > 0,
+        "hosts": unique_hosts,
+        "count": len(viewers),
+        "viewers": viewers,
+        "display": ", ".join(unique_hosts) if unique_hosts else None
+    }
+
 @app.get("/api/profiles")
 def get_profiles():
     try:
@@ -97,6 +165,7 @@ def get_profiles():
     dups_by_engine = core.get_duplicate_accounts_by_engine()
     conv_machines = core.get_conversation_machines()
     hostname = socket.gethostname() or "ferrari"
+    tmux_all_info = core.get_tmux_sessions_info()
 
     # Group active processes by profile
     active_by_profile: Dict[str, List[Dict[str, Any]]] = {}
@@ -124,25 +193,38 @@ def get_profiles():
             if orig_m and orig_m not in [hostname, "kacper"]:
                 m = f"{hostname} ({orig_m})"
             
+            c_stat = get_console_attachment_status(s_name, u, p)
+            started_at = pr.get("started_at") or tmux_all_info.get(s_name, {}).get("created_at")
+
             p_sessions.append({
                 "session_name": s_name,
                 "pid": pr.get("pid"),
                 "conversation_uuid": u,
                 "directory": pr.get("cwd") or "/srv/projects/agy",
                 "machine": m,
-                "cmdline": pr.get("cmdline")
+                "cmdline": pr.get("cmdline"),
+                "started_at": started_at,
+                "console_active": c_stat["active"],
+                "console_hosts": c_stat["hosts"],
+                "console_count": c_stat["count"]
             })
 
         # Add any tmux sessions for this profile not yet in proc_list
         for ts in profile_tmux_sessions:
             if ts not in seen_sess_names:
+                t_data = tmux_all_info.get(ts, {})
+                c_stat = get_console_attachment_status(ts, None, p)
                 p_sessions.append({
                     "session_name": ts,
                     "pid": None,
                     "conversation_uuid": None,
                     "directory": "/srv/projects/agy",
                     "machine": hostname,
-                    "cmdline": None
+                    "cmdline": None,
+                    "started_at": t_data.get("created_at"),
+                    "console_active": c_stat["active"],
+                    "console_hosts": c_stat["hosts"],
+                    "console_count": c_stat["count"]
                 })
                 seen_sess_names.add(ts)
 
@@ -190,6 +272,10 @@ def get_profiles():
             plan_display = "Google AI Pro / Advanced" if logged_in else None
             plan_type = "google"
 
+        prof_c_stat = get_console_attachment_status(primary_tmux_name, active_uuid, p)
+        has_active_console = prof_c_stat["active"] or any(s.get("console_active") for s in p_sessions)
+        all_hosts = list(dict.fromkeys(prof_c_stat["hosts"] + [h for s in p_sessions for h in s.get("console_hosts", [])]))
+
         data.append({
             "name": p,
             "display_name": display_name,
@@ -211,6 +297,10 @@ def get_profiles():
             "active_directory": active_cwd,
             "active_model": active_model,
             "active_family": active_family,
+            "started_at": primary_sess.get("started_at") if primary_sess else None,
+            "console_active": has_active_console,
+            "console_hosts": all_hosts,
+            "console_count": len(all_hosts),
             "quota": {
                 "gemini_effective_pct": q.get("gemini_effective_pct"),
                 "gemini_status": q.get("gemini_status") or "Unknown",
@@ -283,6 +373,19 @@ def get_models(profile: str):
 @app.get("/api/conversations")
 def get_conversations(limit: int = 60, query: Optional[str] = None, category: Optional[str] = None):
     convs = core.list_conversations(limit=limit, search=query, category=category)
+    for c in convs:
+        if c.get("is_online"):
+            s_name = c.get("online_session")
+            u = c.get("uuid")
+            p = c.get("online_profile")
+            c_stat = get_console_attachment_status(s_name, u, p)
+            c["console_active"] = c_stat["active"]
+            c["console_hosts"] = c_stat["hosts"]
+            c["console_count"] = c_stat["count"]
+        else:
+            c["console_active"] = False
+            c["console_hosts"] = []
+            c["console_count"] = 0
     counts = core.get_conversations_stats(search=query)
     return {"conversations": convs, "counts": counts}
 
@@ -544,7 +647,15 @@ def delete_conversation_route(uuid: str, force: bool = False):
 
 @app.get("/api/engines")
 def get_engines_route():
-    return {"engines": core.get_engines_status()}
+    engs = core.get_engines_status()
+    for e in engs:
+        ts = e.get("tmux_session")
+        e_id = e.get("id")
+        c_stat = get_console_attachment_status(ts, None, e_id)
+        e["console_active"] = c_stat["active"]
+        e["console_hosts"] = c_stat["hosts"]
+        e["console_count"] = c_stat["count"]
+    return {"engines": engs}
 
 fleet_sync_state = {"running": False, "last_result": None}
 
@@ -659,6 +770,16 @@ async def websocket_terminal(
 
     if active_uuid:
         core.record_conversation_machine(active_uuid, machine, client_ip or "")
+
+    conn_info = {
+        "host": machine,
+        "ip": client_ip or "127.0.0.1",
+        "connected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "type": "web"
+    }
+    reg_keys = [k for k in [session_name, active_uuid, profile] if k]
+    for rk in reg_keys:
+        LIVE_CONSOLE_VIEWERS.setdefault(rk, []).append(conn_info)
 
     home_dir = core.get_profile_home(profile)
 
@@ -789,22 +910,29 @@ async def websocket_terminal(
         except (WebSocketDisconnect, Exception):
             pass
 
-    task1 = asyncio.create_task(pty_to_websocket())
-    task2 = asyncio.create_task(websocket_to_pty())
-
-    done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
-    for task in pending:
-        task.cancel()
-
     try:
-        os.close(master_fd)
-    except Exception:
-        pass
+        task1 = asyncio.create_task(pty_to_websocket())
+        task2 = asyncio.create_task(websocket_to_pty())
 
-    try:
-        proc.terminate()
-    except Exception:
-        pass
+        done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+    finally:
+        for rk in reg_keys:
+            if rk in LIVE_CONSOLE_VIEWERS:
+                LIVE_CONSOLE_VIEWERS[rk] = [c for c in LIVE_CONSOLE_VIEWERS[rk] if c != conn_info]
+                if not LIVE_CONSOLE_VIEWERS[rk]:
+                    del LIVE_CONSOLE_VIEWERS[rk]
+
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
+
+        try:
+            proc.terminate()
+        except Exception:
+            pass
 
 # -------------------------------------------------------------
 # OPENAI COMPATIBLE AGY COLLECTOR POOL ROUTER
