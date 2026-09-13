@@ -27,52 +27,116 @@ PROFILE_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 UUID_REGEX = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
 IGNORED_PROFILES = {"any", "konsola", "workspace", "active", "auto", "best", "default"}
 
+def resolve_profile_name(profile: str) -> str:
+    """Resolves aliases like agy-01 -> account-01 if account-01 exists."""
+    if not profile:
+        return profile
+    p = profile.strip()
+    if p.startswith("agy-"):
+        cand = "account-" + p[4:]
+        if os.path.isdir(os.path.join(PROFILES_DIR, cand)):
+            return cand
+    return p
+
+def get_profile_engine(profile: str) -> str:
+    p = resolve_profile_name(profile).lower()
+    if p == "claude" or p.startswith("claude-"):
+        return "claude"
+    if p == "codex" or p.startswith("codex-"):
+        return "codex"
+    if p == "bash":
+        return "bash"
+    return "google"
+
+def get_claude_config_dir(profile: str) -> str:
+    p = resolve_profile_name(profile)
+    return os.path.join(PROFILES_DIR, p, "config")
+
+def get_codex_home_dir(profile: str) -> str:
+    p = resolve_profile_name(profile)
+    return os.path.join(PROFILES_DIR, p, "codex")
+
 def validate_profile_name(profile: str) -> bool:
-    if not profile or profile.strip().lower() in IGNORED_PROFILES:
+    if not profile:
         return False
-    return bool(PROFILE_REGEX.match(profile))
+    p = resolve_profile_name(profile)
+    if p.strip().lower() in IGNORED_PROFILES:
+        return False
+    return bool(PROFILE_REGEX.match(p))
 
 def validate_uuid(uuid_str: str) -> bool:
     return bool(UUID_REGEX.match(uuid_str))
 
 def get_profile_home(profile: str) -> str:
-    if not validate_profile_name(profile):
+    p = resolve_profile_name(profile)
+    if not validate_profile_name(p):
         raise ValueError(f"Invalid profile name: {profile}")
-    if profile in ["claude", "codex", "bash"]:
+    if p in ["claude", "codex", "bash"] or p.startswith("claude-") or p.startswith("codex-"):
         return "/home/kacper"
-    return os.path.join(PROFILES_DIR, profile, "home")
+    return os.path.join(PROFILES_DIR, p, "home")
 
 def get_profile_token_path(profile: str) -> str:
-    home = get_profile_home(profile)
+    p = resolve_profile_name(profile)
+    home = get_profile_home(p)
     return os.path.join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
 
 def is_profile_logged_in(profile: str) -> bool:
-    if profile == "bash":
+    p = resolve_profile_name(profile)
+    if p == "bash":
         return True
-    if profile == "claude":
+    if p == "claude":
         return os.path.isfile("/home/kacper/.claude.json") or os.path.isfile("/home/kacper/.claude/.credentials.json")
-    if profile == "codex":
+    if p.startswith("claude-"):
+        cfg_dir = get_claude_config_dir(p)
+        creds = os.path.join(cfg_dir, ".credentials.json")
+        c_json = os.path.join(cfg_dir, ".claude.json")
+        if os.path.isfile(creds) and os.path.getsize(creds) > 20:
+            return True
+        if os.path.isfile(c_json):
+            try:
+                with open(c_json, "r") as f:
+                    data = json.load(f)
+                    return bool(data.get("loggedIn") or data.get("oauthAccount"))
+            except Exception:
+                pass
+        return False
+    if p == "codex":
         return os.path.isfile("/home/kacper/.codex/auth.json")
-    token_path = get_profile_token_path(profile)
+    if p.startswith("codex-"):
+        codex_home = get_codex_home_dir(p)
+        auth_f = os.path.join(codex_home, "auth.json")
+        return os.path.isfile(auth_f) and os.path.getsize(auth_f) > 20
+
+    token_path = get_profile_token_path(p)
     return os.path.isfile(token_path) and os.path.getsize(token_path) > 50
 
 def get_profile_email(profile: str) -> Optional[str]:
-    if profile == "bash":
+    p = resolve_profile_name(profile)
+    if p == "bash":
         return "kacper@ferrari"
-    if profile == "claude":
-        if os.path.isfile("/home/kacper/.claude.json"):
+    if p == "claude" or p.startswith("claude-"):
+        cfg_dir = get_claude_config_dir(p) if p.startswith("claude-") else "/home/kacper"
+        c_json_path = os.path.join(cfg_dir, ".claude.json")
+        if not os.path.isfile(c_json_path) and p == "claude":
+            c_json_path = "/home/kacper/.claude.json"
+        if os.path.isfile(c_json_path):
             try:
-                with open("/home/kacper/.claude.json", "r") as f:
-                    return json.load(f).get("oauthAccount", {}).get("emailAddress") or "m.kasprzyk@kenetic.com.pl"
+                with open(c_json_path, "r") as f:
+                    c_data = json.load(f)
+                    em = c_data.get("oauthAccount", {}).get("emailAddress") or c_data.get("email")
+                    if em:
+                        return em
             except Exception:
                 pass
-        return "m.kasprzyk@kenetic.com.pl"
-    if profile == "codex":
-        if os.path.isfile("/home/kacper/.codex/auth.json"):
+        return "m.kasprzyk@kenetic.com.pl" if is_profile_logged_in(p) else None
+
+    if p == "codex" or p.startswith("codex-"):
+        codex_home = get_codex_home_dir(p) if p.startswith("codex-") else "/home/kacper/.codex"
+        auth_path = os.path.join(codex_home, "auth.json")
+        if os.path.isfile(auth_path):
             try:
                 import base64
-                import json
-                with open("/home/kacper/.codex/auth.json", "r") as f:
+                with open(auth_path, "r") as f:
                     c_auth = json.load(f)
                     id_t = c_auth.get("tokens", {}).get("id_token", "")
                     if id_t and "." in id_t:
@@ -80,14 +144,13 @@ def get_profile_email(profile: str) -> Optional[str]:
                         return payload.get("email")
             except Exception:
                 pass
-        return "w.pokrzywniak@kenetic.com.pl"
+        return "w.pokrzywniak@kenetic.com.pl" if is_profile_logged_in(p) else None
 
-    token_path = get_profile_token_path(profile)
+    token_path = get_profile_token_path(p)
     if not os.path.isfile(token_path):
         return None
     try:
         import base64
-        import json
         with open(token_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         id_token = data.get("id_token")
@@ -154,22 +217,143 @@ def is_profile_reserved(profile: Optional[str]) -> bool:
     norm = profile.strip().lower()
     return norm in RESERVED_PROFILES or norm.startswith("klajner")
 
-def list_all_profiles() -> List[str]:
+def list_google_profiles() -> List[str]:
+    """Returns all Google Antigravity profiles: account-01..account-XX (and Klajner if present)."""
     if not os.path.isdir(PROFILES_DIR):
         return []
-    profiles = [
-        d for d in os.listdir(PROFILES_DIR) 
-        if os.path.isdir(os.path.join(PROFILES_DIR, d)) and d.strip().lower() not in IGNORED_PROFILES
-    ]
-    profiles.sort()
-    return profiles
+    profs = []
+    for d in os.listdir(PROFILES_DIR):
+        full_p = os.path.join(PROFILES_DIR, d)
+        if os.path.isdir(full_p) and (d.startswith("account-") or d.lower() == "klajner"):
+            profs.append(d)
+    profs.sort()
+    return profs
+
+def list_claude_profiles() -> List[str]:
+    """Returns all Claude Code profiles: claude-01, claude-02, ..."""
+    if not os.path.isdir(PROFILES_DIR):
+        return []
+    profs = [d for d in os.listdir(PROFILES_DIR) if os.path.isdir(os.path.join(PROFILES_DIR, d)) and d.startswith("claude-")]
+    profs.sort()
+    return profs
+
+def list_codex_profiles() -> List[str]:
+    """Returns all OpenAI Codex profiles: codex-01, codex-02, ..."""
+    if not os.path.isdir(PROFILES_DIR):
+        return []
+    profs = [d for d in os.listdir(PROFILES_DIR) if os.path.isdir(os.path.join(PROFILES_DIR, d)) and d.startswith("codex-")]
+    profs.sort()
+    return profs
+
+def auto_expand_slots() -> Dict[str, Optional[str]]:
+    """
+    Checks each provider's slots:
+    If the last (highest numbered) slot is logged in, automatically provisions
+    the next slot (e.g. account-13, claude-03, codex-03) so there is always
+    at least one available empty slot ready for the user.
+    """
+    created: Dict[str, Optional[str]] = {"google": None, "claude": None, "codex": None}
+
+    # 1. Google (account-XX)
+    g_profs = [p for p in list_google_profiles() if p.startswith("account-")]
+    nums = []
+    for p in g_profs:
+        m = re.match(r"^account-(\d+)$", p)
+        if m:
+            nums.append(int(m.group(1)))
+    if nums:
+        max_g = max(nums)
+        last_slot = f"account-{max_g:02d}"
+        if is_profile_logged_in(last_slot):
+            next_g = f"account-{(max_g + 1):02d}"
+            try:
+                try:
+                    from . import profile_init
+                except Exception:
+                    import profile_init
+                profile_init.create_profile(next_g)
+                created["google"] = next_g
+            except Exception:
+                pass
+
+    # 2. Claude (claude-XX)
+    c_profs = list_claude_profiles()
+    c_nums = []
+    for p in c_profs:
+        m = re.match(r"^claude-(\d+)$", p)
+        if m:
+            c_nums.append(int(m.group(1)))
+    if c_nums:
+        max_c = max(c_nums)
+        last_c = f"claude-{max_c:02d}"
+        if is_profile_logged_in(last_c):
+            next_c = f"claude-{(max_c + 1):02d}"
+            cfg = os.path.join(PROFILES_DIR, next_c, "config")
+            os.makedirs(cfg, exist_ok=True)
+            created["claude"] = next_c
+
+    # 3. Codex (codex-XX)
+    x_profs = list_codex_profiles()
+    x_nums = []
+    for p in x_profs:
+        m = re.match(r"^codex-(\d+)$", p)
+        if m:
+            x_nums.append(int(m.group(1)))
+    if x_nums:
+        max_x = max(x_nums)
+        last_x = f"codex-{max_x:02d}"
+        if is_profile_logged_in(last_x):
+            next_x = f"codex-{(max_x + 1):02d}"
+            cdx = os.path.join(PROFILES_DIR, next_x, "codex")
+            os.makedirs(cdx, exist_ok=True)
+            created["codex"] = next_x
+
+    return created
+
+def add_profile_slot(provider: str) -> str:
+    """Manually provisions a new slot for the given provider."""
+    provider = provider.lower().strip()
+    if provider in ("google", "agy"):
+        g_profs = [p for p in list_google_profiles() if p.startswith("account-")]
+        nums = [int(re.match(r"^account-(\d+)$", p).group(1)) for p in g_profs if re.match(r"^account-(\d+)$", p)]
+        next_n = (max(nums) + 1) if nums else 1
+        new_p = f"account-{next_n:02d}"
+        try:
+            from . import profile_init
+        except Exception:
+            import profile_init
+        profile_init.create_profile(new_p)
+        return new_p
+    elif provider == "claude":
+        c_profs = list_claude_profiles()
+        nums = [int(re.match(r"^claude-(\d+)$", p).group(1)) for p in c_profs if re.match(r"^claude-(\d+)$", p)]
+        next_n = (max(nums) + 1) if nums else 1
+        new_p = f"claude-{next_n:02d}"
+        os.makedirs(os.path.join(PROFILES_DIR, new_p, "config"), exist_ok=True)
+        return new_p
+    elif provider == "codex":
+        x_profs = list_codex_profiles()
+        nums = [int(re.match(r"^codex-(\d+)$", p).group(1)) for p in x_profs if re.match(r"^codex-(\d+)$", p)]
+        next_n = (max(nums) + 1) if nums else 1
+        new_p = f"codex-{next_n:02d}"
+        os.makedirs(os.path.join(PROFILES_DIR, new_p, "codex"), exist_ok=True)
+        return new_p
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+def list_all_profiles() -> List[str]:
+    auto_expand_slots()
+    g = list_google_profiles()
+    c = list_claude_profiles()
+    x = list_codex_profiles()
+    return g + c + x
 
 def list_pool_profiles() -> List[str]:
     """
-    Returns only active worker pool accounts (e.g. account-01..account-12),
-    strictly excluding Klajner and system/reserved profiles.
+    Returns only active Google worker pool accounts (e.g. account-01..account-12),
+    strictly excluding Klajner, Claude, Codex and system/reserved profiles.
     """
-    return [p for p in list_all_profiles() if not is_profile_reserved(p)]
+    return [p for p in list_google_profiles() if not is_profile_reserved(p)]
 
 def get_duplicate_accounts() -> Dict[str, List[str]]:
     """
@@ -189,17 +373,18 @@ def check_concurrent_account_conflict(target_profile: str) -> Optional[Tuple[str
     Returns (conflicting_profile, email) if a conflict is found, else None.
     Secondary engines (bash, claude, codex) are exempt as they don't share Antigravity Google quotas.
     """
-    if target_profile in ["claude", "codex", "bash"]:
+    p = resolve_profile_name(target_profile)
+    if p in ["claude", "codex", "bash"] or p.startswith("claude-") or p.startswith("codex-"):
         return None
 
-    target_email = get_profile_email(target_profile)
+    target_email = get_profile_email(p)
     if not target_email:
         return None
 
     active_sessions = get_active_sessions()
     for s in active_sessions:
-        active_p = s.get("profile")
-        if active_p and active_p != target_profile and active_p not in ["claude", "codex", "bash"] and is_profile_logged_in(active_p):
+        active_p = resolve_profile_name(s.get("profile") or "")
+        if active_p and active_p != p and not (active_p in ["claude", "codex", "bash"] or active_p.startswith("claude-") or active_p.startswith("codex-")) and is_profile_logged_in(active_p):
             other_email = get_profile_email(active_p)
             if other_email and other_email.lower() == target_email.lower():
                 return (active_p, target_email)
@@ -209,17 +394,38 @@ def logout_profile(profile: str) -> bool:
     """
     Logs out a profile by removing its token and stopping any active session.
     """
-    if not validate_profile_name(profile):
+    p = resolve_profile_name(profile)
+    if not validate_profile_name(p):
         raise ValueError(f"Invalid profile name: {profile}")
 
     # Stop tmux session if running
-    sess_name = f"agy-{profile}"
+    sess_name = f"agy-{p}"
     try:
         subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False, capture_output=True)
     except Exception:
         pass
 
-    token_path = get_profile_token_path(profile)
+    if p.startswith("claude-"):
+        cfg_dir = get_claude_config_dir(p)
+        for f in [".credentials.json", ".claude.json"]:
+            fp = os.path.join(cfg_dir, f)
+            if os.path.isfile(fp):
+                try:
+                    os.remove(fp)
+                except Exception:
+                    pass
+        return True
+    elif p.startswith("codex-"):
+        cdx_dir = get_codex_home_dir(p)
+        auth_f = os.path.join(cdx_dir, "auth.json")
+        if os.path.isfile(auth_f):
+            try:
+                os.remove(auth_f)
+            except Exception:
+                pass
+        return True
+    else:
+        token_path = get_profile_token_path(p)
     if os.path.isfile(token_path):
         try:
             os.remove(token_path)

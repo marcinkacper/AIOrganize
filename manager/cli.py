@@ -16,35 +16,38 @@ import tmux_ops
 import monitor_klajner
 
 def cmd_profiles(args):
-    profiles = core.list_all_profiles()
     active_sessions = core.get_active_sessions()
     tmux_sessions = tmux_ops.list_agy_tmux_sessions()
     dups = core.get_duplicate_accounts()
-
     session_by_profile = {s.get("profile"): s for s in active_sessions}
 
-    print(f"\n=== Antigravity CLI Profiles ({len(profiles)}) ===")
-    print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<42} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<20}")
-    print("-" * 124)
+    def print_section(title, prof_list):
+        print(f"\n=== {title} ({len(prof_list)}) ===")
+        print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<42} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<20}")
+        print("-" * 124)
+        for p in prof_list:
+            is_logged = "YES" if core.is_profile_logged_in(p) else "NO"
+            email = core.get_profile_email(p) or "-"
+            if email != "-" and email in dups:
+                other_p = [x for x in dups[email] if x != p]
+                email_display = f"{email} ⚠️[DUP:{','.join(other_p)}]"
+            else:
+                email_display = email
 
-    for p in profiles:
-        is_logged = "YES" if core.is_profile_logged_in(p) else "NO"
-        email = core.get_profile_email(p) or "-"
-        if email != "-" and email in dups:
-            other_p = [x for x in dups[email] if x != p]
-            email_display = f"{email} ⚠️[DUP:{','.join(other_p)}]"
-        else:
-            email_display = email
+            s_info = session_by_profile.get(p)
+            matched_sess = tmux_ops.list_profile_sessions(p)
+            tmux_active = s_info.get("session_name") if (s_info and s_info.get("session_name") in tmux_sessions) else (matched_sess[0] if matched_sess else "-")
+            pid_str = str(s_info.get("pid")) if s_info else "-"
+            uuid_raw = s_info.get("conversation_uuid") or "-" if s_info else "-"
+            uuid_str = f"...{uuid_raw[-5:]}" if len(uuid_raw) >= 5 and uuid_raw != "-" else uuid_raw
 
-        s_info = session_by_profile.get(p)
-        matched_sess = tmux_ops.list_profile_sessions(p)
-        tmux_active = s_info.get("session_name") if (s_info and s_info.get("session_name") in tmux_sessions) else (matched_sess[0] if matched_sess else "-")
-        pid_str = str(s_info.get("pid")) if s_info else "-"
-        uuid_raw = s_info.get("conversation_uuid") or "-" if s_info else "-"
-        uuid_str = f"...{uuid_raw[-5:]}" if len(uuid_raw) >= 5 and uuid_raw != "-" else uuid_raw
+            display_name = p.replace("account-", "agy-") if p.startswith("account-") else p
+            print(f"{display_name:<13} {is_logged:<11} {email_display:<42} {tmux_active:<16} {pid_str:<8} {uuid_str:<20}")
 
-        print(f"{p:<13} {is_logged:<11} {email_display:<42} {tmux_active:<16} {pid_str:<8} {uuid_str:<20}")
-    
+    print_section("Profile Google Antigravity (agy-01..agy-XX)", core.list_google_profiles())
+    print_section("Profile Anthropic Claude (claude-01..claude-XX)", core.list_claude_profiles())
+    print_section("Profile OpenAI Codex (codex-01..codex-XX)", core.list_codex_profiles())
+
     if dups:
         print("\n⚠️  OSTRZEŻENIE: Wykryto zduplikowane konta Google na profilach:")
         for em, plist in dups.items():
@@ -140,13 +143,55 @@ def cmd_login(args):
         print(f"Error: Invalid profile name '{profile}'", file=sys.stderr)
         sys.exit(1)
 
-    sess_name = f"agy-login-{profile}"
-    home_dir = core.get_profile_home(profile)
+    p = core.resolve_profile_name(profile)
+
+    if p.startswith("claude-") or p == "claude":
+        cfg_dir = core.get_claude_config_dir(p) if p.startswith("claude-") else "/home/kacper/.claude"
+        os.makedirs(cfg_dir, exist_ok=True)
+        env = os.environ.copy()
+        env["CLAUDE_CONFIG_DIR"] = cfg_dir
+        env["HOME"] = "/home/kacper"
+        env["PATH"] = f"/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin:{env.get('PATH', '')}"
+        print(f"\n=== Logowanie profilu Claude Code: {p} ===")
+        print(f"Katalog profilu: {cfg_dir}")
+        print("Uruchamianie procedury autoryzacji Claude...")
+        subprocess.run(["claude", "auth", "login"], env=env)
+        if core.is_profile_logged_in(p):
+            email_str = core.get_profile_email(p) or ""
+            email_disp = f" ({email_str})" if email_str else ""
+            print(f"\n✓ Sukces: Profil {p}{email_disp} został pomyślnie zalogowany!")
+            core.auto_expand_slots()
+        else:
+            print(f"\n❌ Profil {p} nie został zalogowany.")
+        return
+
+    if p.startswith("codex-") or p == "codex":
+        cdx_dir = core.get_codex_home_dir(p) if p.startswith("codex-") else "/home/kacper/.codex"
+        os.makedirs(cdx_dir, exist_ok=True)
+        env = os.environ.copy()
+        env["CODEX_HOME"] = cdx_dir
+        env["HOME"] = "/home/kacper"
+        env["PATH"] = f"/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin:{env.get('PATH', '')}"
+        print(f"\n=== Logowanie profilu OpenAI Codex: {p} ===")
+        print(f"Katalog profilu: {cdx_dir}")
+        print("Uruchamianie procedury logowania Codex...")
+        subprocess.run(["codex", "login"], env=env)
+        if core.is_profile_logged_in(p):
+            email_str = core.get_profile_email(p) or ""
+            email_disp = f" ({email_str})" if email_str else ""
+            print(f"\n✓ Sukces: Profil {p}{email_disp} został pomyślnie zalogowany!")
+            core.auto_expand_slots()
+        else:
+            print(f"\n❌ Profil {p} nie został zalogowany.")
+        return
+
+    sess_name = f"agy-login-{p}"
+    home_dir = core.get_profile_home(p)
 
     if tmux_ops.has_tmux_session(sess_name):
         subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
 
-    print(f"\nInitializing OAuth login for {profile}...")
+    print(f"\nInitializing OAuth login for {p}...")
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", sess_name, f"HOME={home_dir} PATH=/home/kacper/.local/bin:$PATH {core.AGY_BIN}"],
         check=True
@@ -209,21 +254,27 @@ def cmd_login(args):
     time.sleep(1)
     subprocess.run(["tmux", "kill-session", "-t", sess_name], check=False)
 
-    if core.is_profile_logged_in(profile):
-        email_str = core.get_profile_email(profile) or ""
+    if core.is_profile_logged_in(p):
+        email_str = core.get_profile_email(p) or ""
         email_disp = f" ({email_str})" if email_str else ""
-        print(f"\n✓ Sukces: Profil {profile}{email_disp} zostal pomyslnie zalogowany!")
+        print(f"\n✓ Sukces: Profil {p}{email_disp} zostal pomyslnie zalogowany!")
+        core.auto_expand_slots()
 
         # Verify duplicate account
         dups = core.get_duplicate_accounts()
         if email_str and email_str in dups:
-            other_p = [x for x in dups[email_str] if x != profile]
+            other_p = [x for x in dups[email_str] if x != p]
             print(f"\n⚠️  UWAGA: Wykryto zduplikowane konto Google!")
             print(f"   Konto '{email_str}' jest już używane na profilu: {', '.join(other_p)}.")
             print(f"   Profile te dzielą tę samą pulę limitów. Powinniśmy się wystrzegać takich akcji!")
-            print(f"   Aby wylogować i zwolnić profil na inne konto: agy-manager logout {profile}")
+            print(f"   Aby wylogować i zwolnić profil na inne konto: agy-manager logout {p}")
     else:
-        print(f"\nNie udalo sie zalogowac profilu {profile}. Sprobuj ponownie.")
+        print(f"\nNie udalo sie zalogowac profilu {p}. Sprobuj ponownie.")
+
+def cmd_add_slot(args):
+    provider = getattr(args, "provider", "google") or "google"
+    new_p = core.add_profile_slot(provider)
+    print(f"✓ Utworzono nowy slot {provider}: {new_p}")
 
 def cmd_logout(args):
     profile = args.profile
@@ -501,6 +552,10 @@ def main():
     p_usage = subparsers.add_parser("usage", help="Show real-time quotas and limit reset times")
     p_usage.add_argument("profile", nargs="?", help="Specific profile (optional)")
 
+    # add-slot
+    p_add_slot = subparsers.add_parser("add-slot", help="Add a new profile slot for Google, Claude, or Codex")
+    p_add_slot.add_argument("provider", choices=["google", "claude", "codex"], default="google", nargs="?", help="Provider type (google, claude, codex)")
+
     # web
     p_web = subparsers.add_parser("web", help="Start FastAPI Web Dashboard")
     p_web.add_argument("--host", default="0.0.0.0", help="Host address")
@@ -521,6 +576,7 @@ def main():
         "sync-fleet": cmd_fleet_sync,
         "login": cmd_login,
         "logout": cmd_logout,
+        "add-slot": cmd_add_slot,
         "start": cmd_start,
         "switch": cmd_switch,
         "stop": cmd_stop,

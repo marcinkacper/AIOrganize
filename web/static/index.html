@@ -347,22 +347,58 @@
     </div>
   </div>
 
-  <!-- Autonomous AI Engines: Claude Code & OpenAI Codex -->
-  <div class="section-title">
-    <span>Autonomiczne Silniki AI (Claude Code & OpenAI Codex)</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Flota kodowania multi-model · Interaktywne konsole na żywo</span>
+  <!-- Narzędzia i Powłoka Serwera -->
+  <div class="section-title" style="margin-top: 20px;">
+    <span>💻 Powłoka Serwera i Narzędzia</span>
+    <span style="font-size: 12px; color: var(--text-muted);">Główny terminal serwera (Bash Console)</span>
   </div>
   <div class="profiles-grid" id="engines-container" style="margin-bottom: 25px;">
-    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie silników AI...</div>
+    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie konsoli serwera...</div>
   </div>
 
-  <!-- Profiles Grid -->
-  <div class="section-title">
-    <span>Profile Antigravity i Limity Na Żywo</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Niezależne konta Google OAuth · Terminal WebSocket Na Żywo</span>
+  <!-- Google Profiles Grid -->
+  <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; margin-top: 25px;">
+    <div>
+      <span style="font-weight: 600; font-size: 16px;">🔵 Profile Google Antigravity (agy-01 ... agy-XX)</span>
+      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Niezależne konta Google OAuth · Flota modeli Gemini Pro / Flash</span>
+      <span class="badge-pill badge-blue" id="badge-google-count" style="margin-left: 8px;">-</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="btn btn-sm btn-primary" onclick="addSlot('google')" title="Dodaj nowy slot dla konta Google">+ Dodaj slot Google</button>
+    </div>
   </div>
-  <div class="profiles-grid" id="profiles-container">
-    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie profili i limitów...</div>
+  <div class="profiles-grid" id="google-profiles-container" style="margin-bottom: 25px;">
+    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie profili Google...</div>
+  </div>
+
+  <!-- Claude Profiles Grid -->
+  <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; margin-top: 25px;">
+    <div>
+      <span style="font-weight: 600; font-size: 16px;">🟣 Profile Anthropic Claude (claude-01, claude-02, ...)</span>
+      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Claude Code CLI · Niezależne katalogi sesji i tokeny</span>
+      <span class="badge-pill badge-purple" id="badge-claude-count" style="margin-left: 8px;">-</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="btn btn-sm btn-primary" onclick="addSlot('claude')" title="Dodaj nowy slot dla konta Claude">+ Dodaj slot Claude</button>
+    </div>
+  </div>
+  <div class="profiles-grid" id="claude-profiles-container" style="margin-bottom: 25px;">
+    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie profili Claude...</div>
+  </div>
+
+  <!-- Codex Profiles Grid -->
+  <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; margin-top: 25px;">
+    <div>
+      <span style="font-weight: 600; font-size: 16px;">🟢 Profile OpenAI Codex (codex-01, codex-02, ...)</span>
+      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">OpenAI Codex CLI · Niezależne poświadczenia i sesje</span>
+      <span class="badge-pill badge-green" id="badge-codex-count" style="margin-left: 8px;">-</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="btn btn-sm btn-primary" onclick="addSlot('codex')" title="Dodaj nowy slot dla konta Codex">+ Dodaj slot Codex</button>
+    </div>
+  </div>
+  <div class="profiles-grid" id="codex-profiles-container" style="margin-bottom: 25px;">
+    <div style="color: var(--text-muted); padding: 20px;">Wczytywanie profili Codex...</div>
   </div>
 
   <!-- Shared Conversations -->
@@ -495,7 +531,7 @@
         <h3 style="font-size: 16px; font-weight: 600;" id="login-modal-title">🔑 Zaloguj profil</h3>
         <button class="btn btn-sm" onclick="closeModal('login-modal')">✕</button>
       </div>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;" id="login-modal-desc">
         Aby zalogować profil, uruchom poniższą komendę w konsoli serwera (Bash Console), otwórz wygenerowany link OAuth w przeglądarce i wklej kod autoryzacyjny:
       </p>
       <div style="position: relative; margin-bottom: 16px;">
@@ -626,8 +662,8 @@
       try {
         const resProfiles = await fetch('/api/profiles');
         const pData = await resProfiles.json();
-        profilesData = pData.profiles;
-        renderProfiles(profilesData);
+        profilesData = pData.profiles || [];
+        renderProfiles(pData);
 
         const resEng = await fetch('/api/engines');
         if (resEng.ok) {
@@ -746,114 +782,50 @@
       if (!container) return;
       container.innerHTML = '';
 
-      engines.forEach(eng => {
-        const card = document.createElement('div');
-        card.className = 'profile-card';
+      const bashEng = engines.find(e => e.id === 'bash') || {
+        id: 'bash',
+        name: 'Główna Konsola Bash',
+        email: 'kacper@ferrari',
+        tmux_active: false,
+        tmux_session: 'agy-bash',
+        description: 'Powłoka systemowa serwera do zarządzania i logowania'
+      };
 
-        let statusBadge = '';
-        if (eng.tmux_active) {
-          statusBadge = `<span class="badge-pill badge-green">AKTYWNY (PID ${eng.pid || '-'})</span>`;
-        } else {
-          statusBadge = `<span class="badge-pill badge-yellow">BEZCZYNNY</span>`;
-        }
+      const card = document.createElement('div');
+      card.className = 'profile-card';
 
-        let buttons = '';
-        buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${eng.id}')" title="Otwórz ${eng.name} w osobnym oknie">⧉ Konsola</button>`;
-        buttons += `<button class="btn btn-sm" onclick="openTerminal('${eng.id}')" title="Otwórz w oknie modalnym">⌨ Modal</button>`;
-        if (eng.tmux_active) {
-          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${eng.id}')">Zatrzymaj</button>`;
-        } else {
-          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${eng.id}')">Uruchom</button>`;
-        }
+      let statusBadge = bashEng.tmux_active
+        ? `<span class="badge-pill badge-green">AKTYWNY (PID ${bashEng.pid || '-'})</span>`
+        : `<span class="badge-pill badge-yellow">BEZCZYNNY</span>`;
 
-        const icon = eng.id === 'claude' ? '🤖' : (eng.id === 'codex' ? '⚡' : '💻');
+      let buttons = `
+        <button class="btn btn-sm btn-console" onclick="openTerminalWindow('bash')" title="Otwórz konsolę w osobnym oknie">⧉ Konsola Bash</button>
+        <button class="btn btn-sm" onclick="openTerminal('bash')" title="Otwórz w oknie modalnym">⌨ Modal</button>
+      `;
+      if (bashEng.tmux_active) {
+        buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('bash')">Zatrzymaj</button>`;
+      } else {
+        buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('bash')">Uruchom</button>`;
+      }
 
-        let quotaHtml = '';
-        if (eng.id === 'claude' && eng.quota) {
-          const q = eng.quota;
-          const fhColor = q.five_hour_pct > 20 ? '#3fb950' : (q.five_hour_pct > 0 ? '#d29922' : '#f85149');
-          const wkColor = q.weekly_pct > 20 ? '#3fb950' : (q.weekly_pct > 0 ? '#d29922' : '#f85149');
-          const fhBarClass = getBarClass(q.five_hour_pct);
-          const wkBarClass = getBarClass(q.weekly_pct);
-
-          quotaHtml = `
-            <div class="quota-box" style="margin-top: 10px;">
-              <div class="quota-row">
-                <span class="quota-label">Limit 5-godzinny Claude</span>
-                <span class="mono-val" style="color: ${fhColor}; font-weight: 600;">${q.five_hour_pct}% dostępne</span>
-              </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill ${fhBarClass}" style="width: ${q.five_hour_pct}%;"></div>
-              </div>
-              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 3px;">
-                <span>Zużyto: ${q.five_hour_used}%</span>
-                <span>Reset: ${q.five_hour_human}</span>
-              </div>
-
-              <div class="quota-row" style="margin-top: 8px;">
-                <span class="quota-label">Limit tygodniowy Claude</span>
-                <span class="mono-val" style="color: ${wkColor}; font-weight: 600;">${q.weekly_pct}% dostępne</span>
-              </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill ${wkBarClass}" style="width: ${q.weekly_pct}%;"></div>
-              </div>
-              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 3px;">
-                <span>Zużyto: ${q.weekly_used}%</span>
-                <span>Reset: ${q.weekly_human}</span>
-              </div>
-
-              ${q.extra_limit > 0 ? `
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px; border-top: 1px dashed var(--card-border); padding-top: 6px;">
-                Dodatkowe środki: <span style="color: #58a6ff; font-weight: 600;">€${q.extra_used} / €${q.extra_limit}</span> (${q.extra_pct}% zużyte)
-              </div>` : ''}
-            </div>
-          `;
-        } else if (eng.id === 'codex' && eng.quota) {
-          const q = eng.quota;
-          quotaHtml = `
-            <div class="quota-box" style="margin-top: 10px;">
-              <div class="quota-row">
-                <span class="quota-label">Dostępność Codex</span>
-                <span class="mono-val" style="color: #3fb950; font-weight: 600;">100% Dostępne</span>
-              </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill bar-high" style="width: 100%;"></div>
-              </div>
-              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 4px;">
-                <span>Poziom: <span style="color: #58a6ff; font-weight: 500;">${q.tier}</span></span>
-                <span><span style="color: #3fb950;">● Aktywny</span></span>
-              </div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                Kontekst: <span class="mono-val" style="color: #79c0ff;">${q.context_window}</span>
-              </div>
-              <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
-                Polityka: ${q.rate_limit_policy}
-              </div>
-            </div>
-          `;
-        }
-
-        card.innerHTML = `
-          <div class="profile-card-header">
-            <span class="profile-name" style="font-size: 15px;">${icon} ${eng.name}</span>
-            ${statusBadge}
-          </div>
-          <div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px;">
-            v${eng.version} · ${eng.auth_type}
-          </div>
-          <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
-            <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Dostawca: ${eng.provider}</div>
-            ${eng.email ? `<div style="font-size: 11px; color: #58a6ff; margin-top: 2px;">✉ ${eng.email}</div>` : ''}
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${eng.description}</div>
-            <div style="font-size: 11px; color: #3fb950; margin-top: 4px;">tmux: ${eng.tmux_session}</div>
-          </div>
-          ${quotaHtml}
-          <div class="profile-card-actions" style="margin-top: 12px;">
-            ${buttons}
-          </div>
-        `;
-        container.appendChild(card);
-      });
+      card.innerHTML = `
+        <div class="profile-card-header">
+          <span class="profile-name" style="font-size: 15px;">💻 ${bashEng.name}</span>
+          ${statusBadge}
+        </div>
+        <div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px;">
+          Powłoka systemowa Linux · ${bashEng.email || 'kacper@ferrari'}
+        </div>
+        <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+          <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Terminal administracyjny serwera</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Dostęp do narzędzi agy-manager, procesów w tle, repozytoriów git i skryptów wdrożeniowych.</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 4px;">tmux: ${bashEng.tmux_session || 'agy-bash'}</div>
+        </div>
+        <div class="profile-card-actions" style="margin-top: 12px;">
+          ${buttons}
+        </div>
+      `;
+      container.appendChild(card);
     }
 
     async function triggerFleetSync() {
@@ -893,241 +865,480 @@
       return 'bar-low';
     }
 
-    function renderProfiles(profiles) {
-      const container = document.getElementById('profiles-container');
-      container.innerHTML = '';
+    function renderGoogleCard(p) {
+      const card = document.createElement('div');
+      card.className = 'profile-card';
+      const q = p.quota || {};
 
-      let loggedCount = 0;
-      let activeCount = 0;
-      let usableCount = 0;
+      let statusBadge = '';
+      const isReservedProfile = p.is_reserved || (p.name || '').toLowerCase() === 'klajner';
+      if (isReservedProfile) {
+        statusBadge = '<span class="badge-pill badge-purple" style="font-weight: 600;">👑 Dedykowany dla Pawła</span>';
+      } else if (!p.logged_in) {
+        statusBadge = '<span class="badge-pill badge-gray">Niezalogowany</span>';
+      } else if (q.gemini_effective_pct !== null && q.gemini_effective_pct > 0) {
+        statusBadge = `<span class="badge-pill badge-green">Gotowy (${q.gemini_effective_pct}%)</span>`;
+      } else if (q.gemini_status === 'Weekly Limit Reached') {
+        statusBadge = `<span class="badge-pill badge-red" title="Wyczerpano limit tygodniowy">Limit tygodniowy (~${q.gemini_wait_human})</span>`;
+      } else if (q.gemini_status === '5h Limit Reached') {
+        statusBadge = `<span class="badge-pill badge-yellow" title="5-godzinny okres odnowienia">Cooldown (${q.gemini_wait_human})</span>`;
+      } else {
+        statusBadge = `<span class="badge-pill badge-gray">${q.gemini_status || 'Zalogowany'}</span>`;
+      }
 
-      profiles.forEach(p => {
-        if (p.logged_in) loggedCount++;
-        if (p.tmux_active) activeCount++;
+      const sessions = p.sessions || [];
+      let sessionBadge = '';
+      if (sessions.length > 1) {
+        sessionBadge = `<span class="badge-pill badge-blue" style="font-weight: 600;">${sessions.length} aktywne sesje</span>`;
+      } else if (sessions.length === 1) {
+        sessionBadge = `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`;
+      } else {
+        sessionBadge = '<span class="badge-pill badge-gray">Bezczynny</span>';
+      }
 
-        const card = document.createElement('div');
-        card.className = 'profile-card';
+      // Format Gemini Effective Usable Quota
+      const effPct = q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined ? q.gemini_effective_pct : null;
+      const effPctText = effPct !== null ? `${effPct}%` : '-';
+      const effFill = effPct !== null ? effPct : 0;
+      let effSubText = '';
+      if (q.gemini_status === 'Weekly Limit Reached') {
+        effSubText = `<span style="color: #f85149; font-weight: 500;">Wyczerpane (oczekiwanie: ${q.gemini_wait_human})</span>`;
+      } else if (q.gemini_status === '5h Limit Reached') {
+        effSubText = `<span style="color: #d29922; font-weight: 500;">Cooldown (oczekiwanie: ${q.gemini_wait_human})</span>`;
+      } else if (effPct !== null && effPct > 0) {
+        effSubText = `<span style="color: #3fb950; font-weight: 500;">Dostępne teraz</span>`;
+      }
 
-        const q = p.quota || {};
-
-        let statusBadge = '';
-        const isReservedProfile = p.is_reserved || (p.name || '').toLowerCase() === 'klajner';
-        if (isReservedProfile) {
-          statusBadge = '<span class="badge-pill badge-purple" style="font-weight: 600;">👑 Dedykowany dla Pawła</span>';
-        } else if (!p.logged_in) {
-          statusBadge = '<span class="badge-pill badge-gray">Niezalogowany</span>';
-        } else if (q.gemini_effective_pct !== null && q.gemini_effective_pct > 0) {
-          usableCount++;
-          statusBadge = `<span class="badge-pill badge-green">Gotowy (${q.gemini_effective_pct}%)</span>`;
-        } else if (q.gemini_status === 'Weekly Limit Reached') {
-          statusBadge = `<span class="badge-pill badge-red" title="Wyczerpano limit tygodniowy, poczekaj na odnowienie">Limit tygodniowy (~${q.gemini_wait_human})</span>`;
-        } else if (q.gemini_status === '5h Limit Reached') {
-          statusBadge = `<span class="badge-pill badge-yellow" title="5-godzinny okres odnowienia">Cooldown (${q.gemini_wait_human})</span>`;
-        } else {
-          statusBadge = `<span class="badge-pill badge-gray">${q.gemini_status || 'Zalogowany'}</span>`;
+      // Format 5h bucket
+      let g5hText = '-';
+      let g5hReset = '';
+      let g5hFill = 0;
+      if (q.gemini_5h_disabled) {
+        g5hText = 'Zablokowane';
+        g5hReset = '<span style="color: #f85149; font-size: 11px;">(pula tygodniowa wyczerpana)</span>';
+        g5hFill = 0;
+      } else if (q.gemini_5h_pct !== null && q.gemini_5h_pct !== undefined) {
+        g5hText = `${q.gemini_5h_pct}%`;
+        g5hFill = q.gemini_5h_pct;
+        if (q.gemini_5h_pct === 0) {
+          g5hReset = `<span style="color: #d29922; font-size: 11px;">(odnowienie: ${q.gemini_5h_human})</span>`;
         }
+      }
 
-        const sessions = p.sessions || [];
-        let sessionBadge = '';
-        if (sessions.length > 1) {
-          sessionBadge = `<span class="badge-pill badge-blue" style="font-weight: 600;">${sessions.length} aktywne sesje</span>`;
-        } else if (sessions.length === 1) {
-          sessionBadge = `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`;
-        } else {
-          sessionBadge = '<span class="badge-pill badge-gray">Bezczynny</span>';
+      // Format Weekly bucket
+      let gwkText = '-';
+      let gwkReset = '';
+      let gwkFill = 0;
+      if (q.gemini_weekly_pct !== null && q.gemini_weekly_pct !== undefined) {
+        gwkText = `${q.gemini_weekly_pct}%`;
+        gwkFill = q.gemini_weekly_pct;
+        if (q.gemini_weekly_pct === 0) {
+          gwkReset = `<span style="color: #f85149; font-size: 11px;">(odnowienie: ${q.gemini_weekly_human})</span>`;
         }
+      }
 
-        // Format Gemini Effective Usable Quota
-        const effPct = q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined ? q.gemini_effective_pct : null;
-        const effPctText = effPct !== null ? `${effPct}%` : '-';
-        const effFill = effPct !== null ? effPct : 0;
-        let effSubText = '';
-        if (q.gemini_status === 'Weekly Limit Reached') {
-          effSubText = `<span style="color: #f85149; font-weight: 500;">Wyczerpane (oczekiwanie: ${q.gemini_wait_human})</span>`;
-        } else if (q.gemini_status === '5h Limit Reached') {
-          effSubText = `<span style="color: #d29922; font-weight: 500;">Cooldown (oczekiwanie: ${q.gemini_wait_human})</span>`;
-        } else if (effPct !== null && effPct > 0) {
-          effSubText = `<span style="color: #3fb950; font-weight: 500;">Dostępne teraz</span>`;
+      // Format Claude 3P Weekly Bucket
+      let cwkText = '-';
+      let cwkReset = '';
+      let cwkFill = 0;
+      if (q.claude_weekly_pct !== null && q.claude_weekly_pct !== undefined) {
+        cwkText = `${q.claude_weekly_pct}%`;
+        cwkFill = q.claude_weekly_pct;
+        if (q.claude_weekly_pct === 0) {
+          cwkReset = `<span style="color: #f85149; font-size: 11px;">(odnowienie: ${q.claude_weekly_human})</span>`;
         }
+      }
 
-        // Format 5h bucket
-        let g5hText = '-';
-        let g5hReset = '';
-        let g5hFill = 0;
-        if (q.gemini_5h_disabled) {
-          g5hText = 'Zablokowane';
-          g5hReset = '<span style="color: #f85149; font-size: 11px;">(pula tygodniowa wyczerpana)</span>';
-          g5hFill = 0;
-        } else if (q.gemini_5h_pct !== null && q.gemini_5h_pct !== undefined) {
-          g5hText = `${q.gemini_5h_pct}%`;
-          g5hFill = q.gemini_5h_pct;
-          if (q.gemini_5h_human && q.gemini_5h_human !== '-') {
-            g5hReset = `(odnowienie za ${q.gemini_5h_human})`;
-          }
-        }
+      let quotaHtml = '';
+      if (isReservedProfile) {
+        quotaHtml = `
+          <div class="quota-box" style="background: rgba(187, 134, 252, 0.05); border: 1px dashed rgba(187, 134, 252, 0.3); padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="font-size: 12px; color: #d2a8ff; font-weight: 500;">Profil Klajner Engine</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Konto z dedykowanym dostępem do modeli. Monitorowane w sekcji Klajner.</div>
+          </div>
+        `;
+      } else if (p.logged_in) {
+        const effBarClass = getBarClass(effPct);
+        const g5hBarClass = getBarClass(q.gemini_5h_pct);
+        const gwkBarClass = getBarClass(q.gemini_weekly_pct);
+        const cwkBarClass = getBarClass(q.claude_weekly_pct);
 
-        // Format Weekly bucket
-        let gWText = '-';
-        let gWReset = '';
-        let gWFill = 0;
-        if (q.gemini_weekly_pct !== null && q.gemini_weekly_pct !== undefined) {
-          gWText = `${q.gemini_weekly_pct}%`;
-          gWFill = q.gemini_weekly_pct;
-          if (q.gemini_weekly_human && q.gemini_weekly_human !== '-') {
-            gWReset = `(odnowienie za ${q.gemini_weekly_human})`;
-          }
-        }
-
-        // Format Claude/GPT
-        let cWText = '-';
-        let cWReset = '';
-        let cWFill = 0;
-        if (q.claude_weekly_pct !== null && q.claude_weekly_pct !== undefined) {
-          cWText = `${q.claude_weekly_pct}%`;
-          cWFill = q.claude_weekly_pct;
-          if (q.claude_weekly_human && q.claude_weekly_human !== '-') {
-            cWReset = `(odnowienie za ${q.claude_weekly_human})`;
-          }
-        }
-
-        let quotaHtml = '';
-        if (p.logged_in) {
-          quotaHtml = `
-            <div class="quota-box">
-              <div class="quota-row" style="margin-bottom: 3px;">
-                <span class="quota-label" style="font-weight: 600; color: #f0f6fc;">
-                  Dostępne Gemini: <strong style="color: ${effPct > 50 ? '#3fb950' : (effPct > 20 ? '#d29922' : '#f85149')};">${effPctText}</strong>
-                </span>
-                <span style="font-size: 11px;">${effSubText}</span>
-              </div>
-              <div class="quota-bar-bg" style="height: 7px; margin-bottom: 8px;">
-                <div class="quota-bar-fill ${getBarClass(effPct)}" style="width: ${effFill}%;"></div>
-              </div>
-
-              <div class="quota-row">
-                <span class="quota-label">Okno 5-godzinne: <strong>${g5hText}</strong> ${g5hReset}</span>
-              </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill ${getBarClass(q.gemini_5h_disabled ? 0 : q.gemini_5h_pct)}" style="width: ${g5hFill}%;"></div>
-              </div>
-
-              <div class="quota-row" style="margin-top: 6px;">
-                <span class="quota-label">Pula tygodniowa: <strong>${gWText}</strong> ${gWReset}</span>
-              </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill ${getBarClass(q.gemini_weekly_pct)}" style="width: ${gWFill}%;"></div>
-              </div>
-
-              <div class="quota-row" style="margin-top: 6px;">
-                <span class="quota-label">Tygodniowo Claude/GPT: <strong>${cWText}</strong> ${cWReset}</span>
-              </div>
-              <div class="quota-bar-bg">
-                <div class="quota-bar-fill ${getBarClass(q.claude_weekly_pct)}" style="width: ${cWFill}%;"></div>
-              </div>
+        quotaHtml = `
+          <div class="quota-box">
+            <div class="quota-row">
+              <span class="quota-label">Używalne zasoby Gemini</span>
+              <span class="mono-val" style="color: ${effPct > 0 ? '#3fb950' : '#f85149'}; font-weight: 600;">${effPctText}</span>
             </div>
-          `;
-        } else {
-          quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Zaloguj się, aby wyświetlić limity na żywo</div>`;
-        }
-
-        let buttons = '';
-        if (isReservedProfile) {
-          buttons = `<span style="font-size: 11px; color: #d2a8ff; font-weight: 500; padding: 4px 8px; background: rgba(187, 134, 252, 0.08); border-radius: 6px; border: 1px solid rgba(187, 134, 252, 0.25);">🔒 Ściśle dedykowany dla Pawła — zasoby wyłączone z puli</span>`;
-        } else if (p.logged_in) {
-          if (sessions.length === 0) {
-            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
-            buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz puste okno konsoli">⧉ Okno</button>`;
-            buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
-          } else if (sessions.length === 1) {
-            const s0 = sessions[0];
-            buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}', '${s0.conversation_uuid || ''}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
-            buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}', '${s0.conversation_uuid || ''}')">⌨ Modal</button>`;
-            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')" title="Rozpocznij kolejną równoległą rozmowę">+ Nowa</button>`;
-            buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
-          } else {
-            buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')" title="Uruchom kolejną równoległą rozmowę">+ Nowa rozmowa</button>`;
-            buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')" title="Zatrzymaj wszystkie sesje tego profilu">Zatrzymaj wszystko (${sessions.length})</button>`;
-          }
-          buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Wyloguj i usuń dane autoryzacyjne">Wyloguj</button>`;
-        } else {
-          buttons += `<button class="btn btn-sm" onclick="promptLogin('${p.name}')">Zaloguj</button>`;
-        }
-
-        const dupHtml = p.is_duplicate 
-          ? `<div style="font-size: 11px; color: #f85149; font-weight: 600; margin-top: 3px;">⚠️ Zduplikowane konto (współdzielone z ${p.duplicate_with.join(', ')})</div>` 
-          : '';
-
-        const emailHtml = p.email 
-          ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>${dupHtml}` 
-          : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Niezalogowany</div>`;
-
-        let metaHtml = '';
-        if (sessions.length > 1) {
-          metaHtml = `<div style="font-size: 11px; font-weight: 600; color: #8b949e; margin-top: 6px; margin-bottom: 4px;">Aktywne rozmowy (${sessions.length}):</div>`;
-          sessions.forEach((s, idx) => {
-            const sUuidShort = s.conversation_uuid ? '...' + s.conversation_uuid.slice(-5) : (s.conversation_uuid || '-');
-            metaHtml += `
-              <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 6px; padding: 5px 8px; margin-bottom: 5px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #58a6ff;">#${idx+1} ${s.session_name}</span>
-                  <span style="font-size: 10px; color: var(--text-muted);">PID: ${s.pid || '-'}</span>
-                </div>
-                <div style="font-size: 11px; margin-top: 2px;">
-                  UUID: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s.conversation_uuid}'); showToast('Skopiowano UUID: ${s.conversation_uuid}');">${sUuidShort}</span>
-                  ${s.machine ? `<span class="badge-pill badge-purple" style="font-size: 9px; padding: 1px 5px; margin-left: 6px;">🖥️ ${s.machine}</span>` : ''}
-                </div>
-                ${s.directory ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.directory}">📁 ${s.directory}</div>` : ''}
-                <div style="display: flex; gap: 4px; margin-top: 5px;">
-                  <button class="btn btn-sm btn-console" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminalWindow('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⧉ Okno</button>
-                  <button class="btn btn-sm" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminal('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⌨ Modal</button>
-                  <button class="btn btn-sm btn-danger" style="padding: 1px 6px; font-size: 10px;" onclick="stopTarget('${s.session_name}')">✕ Stop</button>
-                </div>
-              </div>
-            `;
-          });
-        } else {
-          const s0 = sessions[0] || {};
-          const activeShort = s0.conversation_uuid && s0.conversation_uuid.length >= 5 ? '...' + s0.conversation_uuid.slice(-5) : (s0.conversation_uuid || '-');
-          const activeAttr = s0.conversation_uuid 
-            ? `style="font-size: 11px; cursor: pointer; color: #58a6ff;" title="Pełny UUID: ${s0.conversation_uuid} (Kliknij, aby skopiować)" onclick="copyTextToClipboard('${s0.conversation_uuid}'); showToast('Skopiowano UUID: ${s0.conversation_uuid}');"` 
-            : `style="font-size: 11px;"`;
-
-          metaHtml = `
-            <div>PID: <span class="mono-val">${s0.pid || '-'}</span></div>
-            <div>Aktywne UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
-            ${s0.machine ? `<div style="margin-top: 3px;">Maszyna: <span class="badge-pill badge-purple" style="font-size: 10px; padding: 2px 7px;">🖥️ ${s0.machine}</span></div>` : ''}
-            ${s0.directory ? `<div style="margin-top: 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s0.directory}">Katalog: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s0.directory}'); showToast('Skopiowano ścieżkę katalogu!');">📁 ${s0.directory}</span></div>` : ''}
-          `;
-        }
-
-        card.innerHTML = `
-          <div>
-            <div class="profile-header" style="align-items: flex-start;">
-              <div>
-                <span class="profile-name">${p.name}</span>
-                ${emailHtml}
-              </div>
-              <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-                ${statusBadge}
-                ${sessionBadge}
-              </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill ${effBarClass}" style="width: ${effFill}%;"></div>
             </div>
-            ${quotaHtml}
-            <div class="profile-meta">
-              ${metaHtml}
+            <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px;">
+              ${effSubText}
+              <span style="color: var(--text-muted);">min(5h, tydz.)</span>
+            </div>
+
+            <div class="quota-row" style="margin-top: 8px;">
+              <span class="quota-label">Limit 5h Gemini</span>
+              <span class="mono-val">${g5hText} ${g5hReset}</span>
+            </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill ${g5hBarClass}" style="width: ${g5hFill}%;"></div>
+            </div>
+
+            <div class="quota-row" style="margin-top: 6px;">
+              <span class="quota-label">Limit tygodniowy Gemini</span>
+              <span class="mono-val">${gwkText} ${gwkReset}</span>
+            </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill ${gwkBarClass}" style="width: ${gwkFill}%;"></div>
+            </div>
+
+            <div class="quota-row" style="margin-top: 6px;">
+              <span class="quota-label">Modele Claude/GPT (3P)</span>
+              <span class="mono-val">${cwkText} ${cwkReset}</span>
+            </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill ${cwkBarClass}" style="width: ${cwkFill}%;"></div>
             </div>
           </div>
-          <div class="profile-actions">${buttons}</div>
         `;
-        container.appendChild(card);
+      } else {
+        quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Zaloguj się, aby wyświetlić limity na żywo</div>`;
+      }
+
+      let buttons = '';
+      if (isReservedProfile) {
+        buttons = `<span style="font-size: 11px; color: #d2a8ff; font-weight: 500; padding: 4px 8px; background: rgba(187, 134, 252, 0.08); border-radius: 6px; border: 1px solid rgba(187, 134, 252, 0.25);">🔒 Ściśle dedykowany dla Pawła</span>`;
+      } else if (p.logged_in) {
+        if (sessions.length === 0) {
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz konsolę w osobnym oknie">⧉ Okno</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
+        } else if (sessions.length === 1) {
+          const s0 = sessions[0];
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}', '${s0.conversation_uuid || ''}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}', '${s0.conversation_uuid || ''}')">⌨ Modal</button>`;
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')" title="Rozpocznij kolejną rozmowę">+ Nowa</button>`;
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
+        } else {
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')" title="Uruchom kolejną rozmowę">+ Nowa</button>`;
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${p.name}')">Zatrzymaj wszystko (${sessions.length})</button>`;
+        }
+        buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Wyloguj profil">Wyloguj</button>`;
+      } else {
+        buttons += `<button class="btn btn-sm btn-primary" onclick="promptLogin('${p.name}', 'google')">🔑 Zaloguj</button>`;
+      }
+
+      const dupHtml = p.is_duplicate 
+        ? `<div style="font-size: 11px; color: #f85149; font-weight: 600; margin-top: 3px;">⚠️ Zduplikowane konto (${p.duplicate_with.join(', ')})</div>` 
+        : '';
+
+      const displayName = p.display_name || p.name;
+      const subName = (displayName !== p.name) ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">(${p.name})</span>` : '';
+
+      const emailHtml = p.email 
+        ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>${dupHtml}` 
+        : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Niezalogowany</div>`;
+
+      let metaHtml = '';
+      if (sessions.length > 1) {
+        metaHtml = `<div style="font-size: 11px; font-weight: 600; color: #8b949e; margin-top: 6px; margin-bottom: 4px;">Aktywne rozmowy (${sessions.length}):</div>`;
+        sessions.forEach((s, idx) => {
+          const sUuidShort = s.conversation_uuid ? '...' + s.conversation_uuid.slice(-5) : (s.conversation_uuid || '-');
+          metaHtml += `
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 6px; padding: 5px 8px; margin-bottom: 5px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #58a6ff;">#${idx+1} ${s.session_name}</span>
+                <span style="font-size: 10px; color: var(--text-muted);">PID: ${s.pid || '-'}</span>
+              </div>
+              <div style="font-size: 11px; margin-top: 2px;">
+                UUID: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s.conversation_uuid}'); showToast('Skopiowano UUID: ${s.conversation_uuid}');">${sUuidShort}</span>
+                ${s.machine ? `<span class="badge-pill badge-purple" style="font-size: 9px; padding: 1px 5px; margin-left: 6px;">🖥️ ${s.machine}</span>` : ''}
+              </div>
+              ${s.directory ? `<div style="font-size: 10px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.directory}">📁 ${s.directory}</div>` : ''}
+              <div style="display: flex; gap: 4px; margin-top: 5px;">
+                <button class="btn btn-sm btn-console" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminalWindow('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⧉ Okno</button>
+                <button class="btn btn-sm" style="padding: 1px 6px; font-size: 10px;" onclick="openTerminal('${p.name}', '${s.session_name}', '${s.conversation_uuid || ''}')">⌨ Modal</button>
+                <button class="btn btn-sm btn-danger" style="padding: 1px 6px; font-size: 10px;" onclick="stopTarget('${s.session_name}')">✕ Stop</button>
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        const s0 = sessions[0] || {};
+        const activeShort = s0.conversation_uuid && s0.conversation_uuid.length >= 5 ? '...' + s0.conversation_uuid.slice(-5) : (s0.conversation_uuid || '-');
+        const activeAttr = s0.conversation_uuid 
+          ? `style="font-size: 11px; cursor: pointer; color: #58a6ff;" title="Pełny UUID: ${s0.conversation_uuid}" onclick="copyTextToClipboard('${s0.conversation_uuid}'); showToast('Skopiowano UUID: ${s0.conversation_uuid}');"` 
+          : `style="font-size: 11px;"`;
+
+        metaHtml = `
+          <div>PID: <span class="mono-val">${s0.pid || '-'}</span></div>
+          <div>Aktywne UUID: <span class="mono-val" ${activeAttr}>${activeShort}</span></div>
+          ${s0.machine ? `<div style="margin-top: 3px;">Maszyna: <span class="badge-pill badge-purple" style="font-size: 10px; padding: 2px 7px;">🖥️ ${s0.machine}</span></div>` : ''}
+          ${s0.directory ? `<div style="margin-top: 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s0.directory}">Katalog: <span class="mono-val" style="color: #79c0ff; cursor: pointer;" onclick="copyTextToClipboard('${s0.directory}'); showToast('Skopiowano ścieżkę!');">📁 ${s0.directory}</span></div>` : ''}
+        `;
+      }
+
+      card.innerHTML = `
+        <div>
+          <div class="profile-header" style="align-items: flex-start;">
+            <div>
+              <span class="profile-name">🔵 ${displayName}</span>${subName}
+              ${emailHtml}
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+              ${statusBadge}
+              ${sessionBadge}
+            </div>
+          </div>
+          ${quotaHtml}
+          <div class="profile-meta">
+            ${metaHtml}
+          </div>
+        </div>
+        <div class="profile-actions">${buttons}</div>
+      `;
+      return card;
+    }
+
+    function renderClaudeCard(p) {
+      const card = document.createElement('div');
+      card.className = 'profile-card';
+      const q = p.quota || {};
+
+      let statusBadge = '';
+      if (!p.logged_in) {
+        statusBadge = '<span class="badge-pill badge-gray">Niezalogowany</span>';
+      } else if (p.tmux_active) {
+        statusBadge = `<span class="badge-pill badge-green">Aktywny (PID ${p.pid || '-'})</span>`;
+      } else {
+        statusBadge = '<span class="badge-pill badge-green">Gotowy (Zalogowany)</span>';
+      }
+
+      const sessions = p.sessions || [];
+      let sessionBadge = sessions.length > 0
+        ? `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`
+        : '<span class="badge-pill badge-gray">Bezczynny</span>';
+
+      let quotaHtml = '';
+      if (p.logged_in) {
+        const fhPct = q.claude_5h_pct !== null && q.claude_5h_pct !== undefined ? q.claude_5h_pct : 100;
+        const wkPct = q.claude_weekly_pct !== null && q.claude_weekly_pct !== undefined ? q.claude_weekly_pct : 100;
+        const fhBarClass = getBarClass(fhPct);
+        const wkBarClass = getBarClass(wkPct);
+
+        quotaHtml = `
+          <div class="quota-box">
+            <div class="quota-row">
+              <span class="quota-label">Limit 5h Claude</span>
+              <span class="mono-val" style="color: #3fb950; font-weight: 600;">${fhPct}%</span>
+            </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill ${fhBarClass}" style="width: ${fhPct}%;"></div>
+            </div>
+            <div class="quota-row" style="margin-top: 6px;">
+              <span class="quota-label">Limit tygodniowy Claude</span>
+              <span class="mono-val" style="color: #3fb950; font-weight: 600;">${wkPct}%</span>
+            </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill ${wkBarClass}" style="width: ${wkPct}%;"></div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+              Status: <span style="color: #3fb950;">● Dostępne (Claude Code CLI)</span>
+            </div>
+          </div>
+        `;
+      } else {
+        quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Konto niezalogowane. Kliknij Zaloguj, aby aktywować profil Claude.</div>`;
+      }
+
+      let buttons = '';
+      if (p.logged_in) {
+        if (sessions.length === 0) {
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
+        } else {
+          const s0 = sessions[0];
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}')">⌨ Modal</button>`;
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
+        }
+        buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Wyloguj konto">Wyloguj</button>`;
+      } else {
+        buttons += `<button class="btn btn-sm btn-primary" onclick="promptLogin('${p.name}', 'claude')">🔑 Zaloguj Claude</button>`;
+      }
+
+      const emailHtml = p.email 
+        ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>` 
+        : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Niezalogowany</div>`;
+
+      card.innerHTML = `
+        <div>
+          <div class="profile-header" style="align-items: flex-start;">
+            <div>
+              <span class="profile-name">🟣 ${p.name}</span>
+              ${emailHtml}
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+              ${statusBadge}
+              ${sessionBadge}
+            </div>
+          </div>
+          ${quotaHtml}
+          <div class="profile-meta">
+            <div>Silnik: <span class="mono-val" style="color: #d2a8ff;">Anthropic Claude Code</span></div>
+            <div>Sesja tmux: <span class="mono-val">agy-${p.name}</span></div>
+            ${p.pid ? `<div>PID: <span class="mono-val">${p.pid}</span></div>` : ''}
+          </div>
+        </div>
+        <div class="profile-actions">${buttons}</div>
+      `;
+      return card;
+    }
+
+    function renderCodexCard(p) {
+      const card = document.createElement('div');
+      card.className = 'profile-card';
+
+      let statusBadge = '';
+      if (!p.logged_in) {
+        statusBadge = '<span class="badge-pill badge-gray">Niezalogowany</span>';
+      } else if (p.tmux_active) {
+        statusBadge = `<span class="badge-pill badge-green">Aktywny (PID ${p.pid || '-'})</span>`;
+      } else {
+        statusBadge = '<span class="badge-pill badge-green">Gotowy (Zalogowany)</span>';
+      }
+
+      const sessions = p.sessions || [];
+      let sessionBadge = sessions.length > 0
+        ? `<span class="badge-pill badge-blue">tmux: ${sessions[0].session_name}</span>`
+        : '<span class="badge-pill badge-gray">Bezczynny</span>';
+
+      let quotaHtml = '';
+      if (p.logged_in) {
+        quotaHtml = `
+          <div class="quota-box">
+            <div class="quota-row">
+              <span class="quota-label">Dostępność Codex</span>
+              <span class="mono-val" style="color: #3fb950; font-weight: 600;">100% Gotowe</span>
+            </div>
+            <div class="quota-bar-bg">
+              <div class="quota-bar-fill bar-high" style="width: 100%;"></div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+              Plan: <span style="color: #58a6ff; font-weight: 500;">ChatGPT Plus / Pro</span> · Rolling window
+            </div>
+          </div>
+        `;
+      } else {
+        quotaHtml = `<div class="quota-box" style="color: var(--text-muted); text-align: center;">Konto niezalogowane. Kliknij Zaloguj, aby aktywować profil OpenAI Codex.</div>`;
+      }
+
+      let buttons = '';
+      if (p.logged_in) {
+        if (sessions.length === 0) {
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${p.name}')">+ Start</button>`;
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}')">⌨ Modal</button>`;
+        } else {
+          const s0 = sessions[0];
+          buttons += `<button class="btn btn-sm btn-console" onclick="openTerminalWindow('${p.name}', '${s0.session_name}')" title="Otwórz w osobnym oknie">⧉ Okno</button>`;
+          buttons += `<button class="btn btn-sm" onclick="openTerminal('${p.name}', '${s0.session_name}')">⌨ Modal</button>`;
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${s0.session_name}')">Stop</button>`;
+        }
+        buttons += `<button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="logoutProfile('${p.name}')" title="Wyloguj konto">Wyloguj</button>`;
+      } else {
+        buttons += `<button class="btn btn-sm btn-primary" onclick="promptLogin('${p.name}', 'codex')">🔑 Zaloguj Codex</button>`;
+      }
+
+      const emailHtml = p.email 
+        ? `<div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px; word-break: break-all;">✉ ${p.email}</div>` 
+        : `<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Niezalogowany</div>`;
+
+      card.innerHTML = `
+        <div>
+          <div class="profile-header" style="align-items: flex-start;">
+            <div>
+              <span class="profile-name">🟢 ${p.name}</span>
+              ${emailHtml}
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+              ${statusBadge}
+              ${sessionBadge}
+            </div>
+          </div>
+          ${quotaHtml}
+          <div class="profile-meta">
+            <div>Silnik: <span class="mono-val" style="color: #7ee787;">OpenAI Codex CLI</span></div>
+            <div>Sesja tmux: <span class="mono-val">agy-${p.name}</span></div>
+            ${p.pid ? `<div>PID: <span class="mono-val">${p.pid}</span></div>` : ''}
+          </div>
+        </div>
+        <div class="profile-actions">${buttons}</div>
+      `;
+      return card;
+    }
+
+    function renderProfiles(data) {
+      const gContainer = document.getElementById('google-profiles-container');
+      const cContainer = document.getElementById('claude-profiles-container');
+      const xContainer = document.getElementById('codex-profiles-container');
+
+      if (gContainer) gContainer.innerHTML = '';
+      if (cContainer) cContainer.innerHTML = '';
+      if (xContainer) xContainer.innerHTML = '';
+
+      const all = Array.isArray(data) ? data : (data.profiles || []);
+      const googleList = (data.google && data.google.length) ? data.google : all.filter(p => p.engine === 'google' || p.name.startsWith('account-') || p.name.toLowerCase() === 'klajner');
+      const claudeList = (data.claude && data.claude.length) ? data.claude : all.filter(p => p.engine === 'claude' || p.name.startsWith('claude-'));
+      const codexList = (data.codex && data.codex.length) ? data.codex : all.filter(p => p.engine === 'codex' || p.name.startsWith('codex-'));
+
+      let gLogged = 0, gUsable = 0, totalActive = 0;
+      googleList.forEach(p => {
+        if (p.logged_in) gLogged++;
+        if (p.tmux_active) totalActive += (p.sessions ? p.sessions.length : 1);
+        const q = p.quota || {};
+        if (q.gemini_effective_pct !== null && q.gemini_effective_pct > 0) gUsable++;
+        if (gContainer) gContainer.appendChild(renderGoogleCard(p));
       });
 
-      document.getElementById('stat-logged-in').innerText = `${loggedCount} / 12`;
-      document.getElementById('stat-active').innerText = `${activeCount} aktywnych`;
-      const usableEl = document.getElementById('stat-usable');
-      if (usableEl) usableEl.innerText = `${usableCount} gotowych`;
-      const usableSubEl = document.getElementById('stat-usable-sub');
-      if (usableSubEl) usableSubEl.innerText = `${loggedCount - usableCount} wstrzymane/cooldown`;
+      let cLogged = 0;
+      claudeList.forEach(p => {
+        if (p.logged_in) cLogged++;
+        if (p.tmux_active) totalActive += (p.sessions ? p.sessions.length : 1);
+        if (cContainer) cContainer.appendChild(renderClaudeCard(p));
+      });
+
+      let xLogged = 0;
+      codexList.forEach(p => {
+        if (p.logged_in) xLogged++;
+        if (p.tmux_active) totalActive += (p.sessions ? p.sessions.length : 1);
+        if (xContainer) xContainer.appendChild(renderCodexCard(p));
+      });
+
+      // Update section badges
+      const bGoogle = document.getElementById('badge-google-count');
+      if (bGoogle) bGoogle.innerText = `${gLogged} / ${googleList.length} zalogowanych`;
+
+      const bClaude = document.getElementById('badge-claude-count');
+      if (bClaude) bClaude.innerText = `${cLogged} / ${claudeList.length} zalogowanych`;
+
+      const bCodex = document.getElementById('badge-codex-count');
+      if (bCodex) bCodex.innerText = `${xLogged} / ${codexList.length} zalogowanych`;
+
+      // Update top stats
+      const statLogged = document.getElementById('stat-logged-in');
+      if (statLogged) statLogged.innerText = `${gLogged} / ${googleList.length}`;
+
+      const statActive = document.getElementById('stat-active');
+      if (statActive) statActive.innerText = `${totalActive} aktywnych`;
+
+      const statUsable = document.getElementById('stat-usable');
+      if (statUsable) statUsable.innerText = `${gUsable} gotowych`;
+
+      const statUsableSub = document.getElementById('stat-usable-sub');
+      if (statUsableSub) statUsableSub.innerText = `${gLogged - gUsable} wstrzymane/cooldown`;
     }
 
     function showToast(msg) {
@@ -1756,16 +1967,48 @@
       }
     }
 
-    function promptLogin(profile) {
-      const cmd = `agy-manager login ${profile}`;
-      document.getElementById('login-modal-title').innerText = `🔑 Zaloguj profil: ${profile}`;
+    async function addSlot(provider) {
+      try {
+        const res = await fetch('/api/slots/add', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ provider: provider })
+        });
+        const data = await res.json();
+        if (res.ok && data.new_slot) {
+          showToast(`Dodano nowy slot: ${data.new_slot}`);
+          fetchData();
+        } else {
+          alert('Błąd podczas dodawania slotu');
+        }
+      } catch (err) {
+        alert('Błąd sieciowy: ' + err.message);
+      }
+    }
+
+    function promptLogin(profile, provider) {
+      let cmd = `agy-manager login ${profile}`;
+      let desc = 'Aby zalogować profil Google, uruchom poniższą komendę w konsoli serwera (Bash Console), otwórz wygenerowany link OAuth w przeglądarce i wklej kod autoryzacyjny:';
+
+      if (provider === 'claude' || profile.startsWith('claude-')) {
+        desc = 'Aby zalogować konto Anthropic Claude, uruchom poniższą komendę w Bash Console serwera i dokończ autoryzację w przeglądarce:';
+      } else if (provider === 'codex' || profile.startsWith('codex-')) {
+        desc = 'Aby zalogować konto OpenAI Codex, uruchom poniższą komendę w Bash Console serwera i postępuj zgodnie z instrukcjami:';
+      }
+
+      const modalTitle = document.getElementById('login-modal-title');
+      if (modalTitle) modalTitle.innerText = `🔑 Zaloguj profil: ${profile}`;
+      const modalDesc = document.getElementById('login-modal-desc');
+      if (modalDesc) modalDesc.innerText = desc;
       const input = document.getElementById('login-cmd-input');
-      input.value = cmd;
-      document.getElementById('login-modal').style.display = 'flex';
-      setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 50);
+      if (input) {
+        input.value = cmd;
+        document.getElementById('login-modal').style.display = 'flex';
+        setTimeout(() => {
+          input.focus();
+          input.select();
+        }, 50);
+      }
     }
 
     async function copyLoginCmd() {
@@ -1784,7 +2027,7 @@
     }
 
     async function logoutProfile(profile) {
-      if (!confirm(`Czy na pewno chcesz wylogować ${profile}?\n\nSpowoduje to usunięcie poświadczeń OAuth i umożliwi zalogowanie nowego, unikalnego konta Google.`)) {
+      if (!confirm(`Czy na pewno chcesz wylogować ${profile}?\n\nSpowoduje to usunięcie aktywnych poświadczeń i umożliwi zalogowanie nowego konta.`)) {
         return;
       }
       try {

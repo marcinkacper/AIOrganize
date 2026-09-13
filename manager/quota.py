@@ -35,9 +35,95 @@ def parse_relative_time(iso_str: Optional[str]) -> str:
     except Exception:
         return iso_str[:16]
 
+def fetch_claude_quota(profile: str) -> Dict[str, Any]:
+    p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
+    cfg_dir = f"/srv/agy-manager/profiles/{p}/config" if p.startswith("claude-") else "/home/kacper"
+    c_path = os.path.join(cfg_dir, ".claude.json")
+    if not os.path.isfile(c_path) and p == "claude":
+        c_path = "/home/kacper/.claude.json"
+
+    fh_avail, sd_avail = 100, 100
+    fh_res, sd_res = None, None
+    fh_human, sd_human = "-", "-"
+
+    if os.path.isfile(c_path):
+        try:
+            with open(c_path) as f:
+                data = json.load(f)
+            util = data.get("cachedUsageUtilization", {}).get("utilization", {})
+            fh = util.get("five_hour", {})
+            fh_used = fh.get("utilization", 0) if fh else 0
+            fh_avail = max(0, round(100 - (fh_used or 0), 1))
+            fh_res = fh.get("resets_at") if fh else None
+            fh_human = parse_relative_time(fh_res)
+
+            sd = util.get("seven_day", {})
+            sd_used = sd.get("utilization", 0) if sd else 0
+            sd_avail = max(0, round(100 - (sd_used or 0), 1))
+            sd_res = sd.get("resets_at") if sd else None
+            sd_human = parse_relative_time(sd_res)
+        except Exception:
+            pass
+
+    return {
+        "profile": profile,
+        "logged_in": True,
+        "gemini_effective_pct": None,
+        "gemini_status": "Not Applicable",
+        "gemini_wait_human": "-",
+        "gemini_5h_pct": None,
+        "gemini_5h_disabled": False,
+        "gemini_5h_reset": None,
+        "gemini_5h_human": "-",
+        "gemini_weekly_pct": None,
+        "gemini_weekly_reset": None,
+        "gemini_weekly_human": "-",
+        "claude_effective_pct": min(fh_avail, sd_avail),
+        "claude_status": "Available" if min(fh_avail, sd_avail) > 0 else "Limit Reached",
+        "claude_wait_human": fh_human if fh_avail == 0 else (sd_human if sd_avail == 0 else "ready"),
+        "claude_5h_pct": fh_avail,
+        "claude_5h_disabled": False,
+        "claude_weekly_pct": sd_avail,
+        "claude_weekly_reset": sd_res,
+        "claude_weekly_human": sd_human,
+        "error": None,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+def fetch_codex_quota(profile: str) -> Dict[str, Any]:
+    return {
+        "profile": profile,
+        "logged_in": True,
+        "gemini_effective_pct": 100,
+        "gemini_status": "Available",
+        "gemini_wait_human": "ready",
+        "gemini_5h_pct": 100,
+        "gemini_5h_disabled": False,
+        "gemini_5h_reset": None,
+        "gemini_5h_human": "ready",
+        "gemini_weekly_pct": 100,
+        "gemini_weekly_reset": None,
+        "gemini_weekly_human": "ready",
+        "claude_effective_pct": 100,
+        "claude_status": "Available",
+        "claude_wait_human": "ready",
+        "claude_5h_pct": 100,
+        "claude_5h_disabled": False,
+        "claude_weekly_pct": 100,
+        "claude_weekly_reset": None,
+        "claude_weekly_human": "ready",
+        "error": None,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
 def fetch_profile_quota(profile: str) -> Dict[str, Any]:
     if not validate_profile_name(profile) or not is_profile_logged_in(profile):
         return {"logged_in": False, "profile": profile}
+
+    if profile == "claude" or profile.startswith("claude-"):
+        return fetch_claude_quota(profile)
+    if profile == "codex" or profile.startswith("codex-"):
+        return fetch_codex_quota(profile)
 
     home_dir = get_profile_home(profile)
     env = os.environ.copy()

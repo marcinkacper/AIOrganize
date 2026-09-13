@@ -87,6 +87,10 @@ def favicon_route():
 
 @app.get("/api/profiles")
 def get_profiles():
+    try:
+        core.auto_expand_slots()
+    except Exception as e:
+        logger.warning(f"Error auto-expanding slots: {e}")
     profiles = core.list_all_profiles()
     active = core.get_active_sessions()
     cached_quotas = quota.get_cached_quotas()
@@ -167,8 +171,13 @@ def get_profiles():
             elif "gemini" in m_lower:
                 active_family = "gemini"
 
+        engine_type = core.get_profile_engine(p)
+        display_name = p.replace("account-", "agy-") if p.startswith("account-") else p
+
         data.append({
             "name": p,
+            "display_name": display_name,
+            "engine": engine_type,
             "email": email,
             "is_duplicate": is_dup,
             "duplicate_with": dup_with,
@@ -206,7 +215,23 @@ def get_profiles():
                 "updated_at": q.get("updated_at")
             }
         })
-    return {"profiles": data}
+
+    google_list = [x for x in data if x.get("engine") == "google"]
+    claude_list = [x for x in data if x.get("engine") == "claude"]
+    codex_list = [x for x in data if x.get("engine") == "codex"]
+
+    return {
+        "profiles": data,
+        "google": google_list,
+        "claude": claude_list,
+        "codex": codex_list
+    }
+
+@app.post("/api/slots/add")
+def add_slot_api(req: Dict[str, Any]):
+    provider = req.get("provider", "google")
+    new_slot = core.add_profile_slot(provider)
+    return {"status": "ok", "provider": provider, "new_slot": new_slot}
 
 @app.post("/api/quota/refresh")
 async def refresh_quotas_endpoint():
@@ -365,20 +390,29 @@ def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None, sessio
             except Exception:
                 pass
 
-        if actual_profile in ["claude", "codex", "bash"]:
-            engines = core.get_engines_status()
-            eng = next((e for e in engines if e["id"] == actual_profile), None)
+        if actual_profile in ["claude", "codex", "bash"] or actual_profile.startswith("claude-") or actual_profile.startswith("codex-"):
+            email = core.get_profile_email(actual_profile)
+            engine_family = core.get_profile_engine(actual_profile)
+            q = quota.fetch_profile_quota(actual_profile) if (actual_profile.startswith("claude-") or actual_profile.startswith("codex-")) else {}
+            eff_pct = q.get("claude_effective_pct", 100) if engine_family == "claude" else 100
+            model_name = "Claude Code" if engine_family == "claude" else ("Codex" if engine_family == "codex" else "Bash Console")
             return {
                 "status": "ok",
                 "profile": actual_profile,
                 "session": target_session,
                 "cwd": cwd,
-                "email": eng.get("email") if eng else None,
-                "active_model": eng.get("name") if eng else actual_profile.capitalize(),
-                "active_family": actual_profile,
-                "active_effective_pct": eng.get("quota", {}).get("five_hour_pct", 100) if eng else 100,
+                "email": email,
+                "active_model": model_name,
+                "active_family": engine_family,
+                "active_effective_pct": eff_pct,
                 "gemini": None,
-                "claude": None
+                "claude": {
+                    "effective_pct": q.get("claude_effective_pct", 100),
+                    "status": q.get("claude_status") or "Available",
+                    "5h_pct": q.get("claude_5h_pct"),
+                    "weekly_pct": q.get("claude_weekly_pct"),
+                    "wait_human": q.get("claude_wait_human") or "ready"
+                } if engine_family == "claude" else None
             }
 
         active_model = core.get_profile_active_model(actual_profile)
@@ -541,6 +575,9 @@ async def websocket_terminal(
         stripped = target[4:]
         if stripped in ("bash", "claude", "codex"):
             profile = stripped
+        elif stripped.startswith("claude-") or stripped.startswith("codex-"):
+            parts = stripped.split("-")
+            profile = f"{parts[0]}-{parts[1]}"
         elif stripped.startswith("account-"):
             parts = stripped.split("-")
             if len(parts) >= 2:
@@ -597,10 +634,12 @@ async def websocket_terminal(
     if profile == "bash":
         home_dir = "/home/kacper"
         run_cmd = ["bash", "-l"]
-    elif profile == "claude":
-        run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
-    elif profile == "codex":
-        run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
+    elif profile == "claude" or profile.startswith("claude-"):
+        cfg_dir = core.get_claude_config_dir(profile) if profile.startswith("claude-") else "/home/kacper/.claude"
+        run_cmd = ["bash", "-c", f"CLAUDE_CONFIG_DIR={cfg_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
+    elif profile == "codex" or profile.startswith("codex-"):
+        cdx_dir = core.get_codex_home_dir(profile) if profile.startswith("codex-") else "/home/kacper/.codex"
+        run_cmd = ["bash", "-c", f"CODEX_HOME={cdx_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
     else:
         cmd = [f"HOME={home_dir}", f"PATH=/home/kacper/.local/bin:$PATH", core.AGY_BIN]
         if active_uuid:

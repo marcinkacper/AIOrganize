@@ -36,19 +36,23 @@ except Exception:
     from db import log_audit
 
 def get_tmux_session_name(profile: str, conversation_uuid: Optional[str] = None) -> str:
-    if profile in ("bash", "claude", "codex"):
-        return f"agy-{profile}"
+    p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
+    if p in ("bash", "claude", "codex") or p.startswith("claude-") or p.startswith("codex-"):
+        if conversation_uuid and validate_uuid(conversation_uuid):
+            return f"agy-{p}-{conversation_uuid[:8]}"
+        return f"agy-{p}"
     if conversation_uuid and validate_uuid(conversation_uuid):
-        return f"agy-{profile}-{conversation_uuid[:8]}"
-    return f"agy-{profile}"
+        return f"agy-{p}-{conversation_uuid[:8]}"
+    return f"agy-{p}"
 
 def list_profile_sessions(profile: str) -> List[str]:
     """
     Returns all tmux sessions belonging to a specific profile,
-    e.g. agy-account-02, agy-account-02-28a61098, etc.
+    e.g. agy-account-02, agy-claude-01, etc.
     """
+    p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
     all_sess = list_agy_tmux_sessions()
-    prefix = f"agy-{profile}"
+    prefix = f"agy-{p}"
     matched = []
     for s in all_sess:
         if s == prefix or s.startswith(f"{prefix}-"):
@@ -56,11 +60,14 @@ def list_profile_sessions(profile: str) -> List[str]:
     return matched
 
 def find_available_session_name(profile: str, conversation_uuid: Optional[str] = None) -> str:
-    if profile in ("bash", "claude", "codex"):
-        return f"agy-{profile}"
+    p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
+    if p in ("bash", "claude", "codex") or p.startswith("claude-") or p.startswith("codex-"):
+        if conversation_uuid and validate_uuid(conversation_uuid):
+            return f"agy-{p}-{conversation_uuid[:8]}"
+        return f"agy-{p}"
     if conversation_uuid and validate_uuid(conversation_uuid):
-        return f"agy-{profile}-{conversation_uuid[:8]}"
-    base = f"agy-{profile}"
+        return f"agy-{p}-{conversation_uuid[:8]}"
+    base = f"agy-{p}"
     if not has_tmux_session(base):
         return base
     i = 2
@@ -142,14 +149,17 @@ def start_profile_session(
     else:
         session_name = find_available_session_name(profile)
 
-    if profile == "bash":
+    p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
+    if p == "bash":
         run_cmd = ["bash", "-l"]
-    elif profile == "claude":
-        run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
-    elif profile == "codex":
-        run_cmd = ["bash", "-c", "HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
+    elif p == "claude" or p.startswith("claude-"):
+        cfg_dir = f"/srv/agy-manager/profiles/{p}/config" if p.startswith("claude-") else "/home/kacper/.claude"
+        run_cmd = ["bash", "-c", f"CLAUDE_CONFIG_DIR={cfg_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
+    elif p == "codex" or p.startswith("codex-"):
+        cdx_dir = f"/srv/agy-manager/profiles/{p}/codex" if p.startswith("codex-") else "/home/kacper/.codex"
+        run_cmd = ["bash", "-c", f"CODEX_HOME={cdx_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
     else:
-        home_dir = get_profile_home(profile)
+        home_dir = get_profile_home(p)
         cmd = [f"HOME={home_dir}", f"PATH=/home/kacper/.local/bin:$PATH", AGY_BIN]
         if conversation_uuid:
             cmd.extend(["--conversation", conversation_uuid])
