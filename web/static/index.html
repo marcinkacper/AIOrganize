@@ -1477,6 +1477,15 @@
         const isCtrl = event.ctrlKey || event.metaKey;
         const isC = event.key === 'c' || event.key === 'C';
         if (isCtrl && isC) {
+          if (event.shiftKey) {
+            // Explicit Ctrl+Shift+C: terminal copy standard
+            const textToCopy = term.hasSelection() ? term.getSelection() : modalLastSelection;
+            if (textToCopy && textToCopy.trim().length > 0) {
+              copyTextToClipboard(textToCopy);
+              showToast(`Skopiowano (${textToCopy.length} zn.) do schowka!`);
+            }
+            return false;
+          }
           if (term.hasSelection() && term.getSelection().length > 0) {
             const sel = term.getSelection();
             if (sel && sel.trim().length > 0) {
@@ -1501,18 +1510,9 @@
         return true;
       });
 
-      // Right-click paste/copy support
+      // Right-click paste (standard Linux/PuTTY terminal behavior)
       container.oncontextmenu = (e) => {
         e.preventDefault();
-        if (term.hasSelection()) {
-          const sel = term.getSelection();
-          if (sel && sel.trim().length > 0) {
-            modalLastSelection = sel;
-            copyTextToClipboard(sel);
-            showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
-            return;
-          }
-        }
         pasteToTerminal();
       };
 
