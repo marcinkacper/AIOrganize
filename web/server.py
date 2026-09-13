@@ -94,7 +94,7 @@ def get_profiles():
     profiles = core.list_all_profiles()
     active = core.get_active_sessions()
     cached_quotas = quota.get_cached_quotas()
-    dups = core.get_duplicate_accounts()
+    dups_by_engine = core.get_duplicate_accounts_by_engine()
     conv_machines = core.get_conversation_machines()
     hostname = socket.gethostname() or "ferrari"
 
@@ -156,8 +156,11 @@ def get_profiles():
 
         q = cached_quotas.get(p, {})
         email = core.get_profile_email(p)
-        is_dup = bool(email and email in dups)
-        dup_with = [x for x in dups.get(email, []) if x != p] if is_dup else []
+        engine_type = core.get_profile_engine(p)
+        eng_dups = dups_by_engine.get(engine_type, {})
+        email_clean = email.strip().lower() if email else ""
+        is_dup = bool(email_clean and email_clean in eng_dups)
+        dup_with = [x for x in eng_dups.get(email_clean, []) if x != p] if is_dup else []
 
         is_res = core.is_profile_reserved(p)
         res_for = "pawel" if p.lower() == "klajner" else ("system" if is_res else None)

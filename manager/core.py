@@ -355,17 +355,46 @@ def list_pool_profiles() -> List[str]:
     """
     return [p for p in list_google_profiles() if not is_profile_reserved(p)]
 
-def get_duplicate_accounts() -> Dict[str, List[str]]:
+def get_duplicate_accounts_by_engine() -> Dict[str, Dict[str, List[str]]]:
     """
-    Returns mapping of {email: [profile1, profile2]} for emails used across multiple profiles.
+    Returns {engine: {email: [profile1, profile2]}} for emails duplicated within the SAME engine/service.
+    Accounts with the same email across DIFFERENT services (e.g. Google vs Claude vs Codex)
+    are completely separate services and are NOT duplicates.
     """
-    email_map: Dict[str, List[str]] = {}
+    email_map: Dict[str, Dict[str, List[str]]] = {
+        "google": {},
+        "claude": {},
+        "codex": {}
+    }
     for p in list_all_profiles():
         if is_profile_logged_in(p):
             email = get_profile_email(p)
             if email:
-                email_map.setdefault(email, []).append(p)
-    return {email: plist for email, plist in email_map.items() if len(plist) > 1}
+                eng = get_profile_engine(p)
+                if eng in email_map:
+                    email_map[eng].setdefault(email.strip().lower(), []).append(p)
+
+    result: Dict[str, Dict[str, List[str]]] = {}
+    for eng, emap in email_map.items():
+        result[eng] = {em: plist for em, plist in emap.items() if len(plist) > 1}
+    return result
+
+def get_duplicate_accounts(engine: Optional[str] = None) -> Dict[str, List[str]]:
+    """
+    Returns mapping of {email: [profile1, profile2]} for emails used across multiple profiles
+    strictly WITHIN THE SAME engine/service (e.g. two Google accounts sharing an email,
+    or two Claude accounts sharing an email).
+    Cross-engine accounts sharing an email are independent services and are not treated as duplicates.
+    """
+    by_eng = get_duplicate_accounts_by_engine()
+    if engine and engine in by_eng:
+        return by_eng[engine]
+
+    merged: Dict[str, List[str]] = {}
+    for eng, emap in by_eng.items():
+        for em, plist in emap.items():
+            merged.setdefault(em, []).extend(plist)
+    return merged
 
 def check_concurrent_account_conflict(target_profile: str) -> Optional[Tuple[str, str]]:
     """

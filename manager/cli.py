@@ -18,18 +18,20 @@ import monitor_klajner
 def cmd_profiles(args):
     active_sessions = core.get_active_sessions()
     tmux_sessions = tmux_ops.list_agy_tmux_sessions()
-    dups = core.get_duplicate_accounts()
+    dups_by_engine = core.get_duplicate_accounts_by_engine()
     session_by_profile = {s.get("profile"): s for s in active_sessions}
 
-    def print_section(title, prof_list):
+    def print_section(title, prof_list, eng):
         print(f"\n=== {title} ({len(prof_list)}) ===")
         print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<42} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<20}")
         print("-" * 124)
+        eng_dups = dups_by_engine.get(eng, {})
         for p in prof_list:
             is_logged = "YES" if core.is_profile_logged_in(p) else "NO"
             email = core.get_profile_email(p) or "-"
-            if email != "-" and email in dups:
-                other_p = [x for x in dups[email] if x != p]
+            email_lower = email.strip().lower() if email != "-" else ""
+            if email_lower and email_lower in eng_dups:
+                other_p = [x for x in eng_dups[email_lower] if x != p]
                 email_display = f"{email} ⚠️[DUP:{','.join(other_p)}]"
             else:
                 email_display = email
@@ -44,14 +46,17 @@ def cmd_profiles(args):
             display_name = p.replace("account-", "agy-") if p.startswith("account-") else p
             print(f"{display_name:<13} {is_logged:<11} {email_display:<42} {tmux_active:<16} {pid_str:<8} {uuid_str:<20}")
 
-    print_section("Profile Google Antigravity (agy-01..agy-XX)", core.list_google_profiles())
-    print_section("Profile Anthropic Claude (claude-01..claude-XX)", core.list_claude_profiles())
-    print_section("Profile OpenAI Codex (codex-01..codex-XX)", core.list_codex_profiles())
+    print_section("Profile Google Antigravity (agy-01..agy-XX)", core.list_google_profiles(), "google")
+    print_section("Profile Anthropic Claude (claude-01..claude-XX)", core.list_claude_profiles(), "claude")
+    print_section("Profile OpenAI Codex (codex-01..codex-XX)", core.list_codex_profiles(), "codex")
 
-    if dups:
-        print("\n⚠️  OSTRZEŻENIE: Wykryto zduplikowane konta Google na profilach:")
-        for em, plist in dups.items():
-            print(f"   • {em} -> {', '.join(plist)} (współdzielą pulę limitów!)")
+    has_dups = any(len(v) > 0 for v in dups_by_engine.values())
+    if has_dups:
+        print("\n⚠️  OSTRZEŻENIE: Wykryto zduplikowane konta w ramach tej samej usługi:")
+        for eng, emap in dups_by_engine.items():
+            for em, plist in emap.items():
+                eng_label = "Google" if eng == "google" else ("Claude" if eng == "claude" else "Codex")
+                print(f"   • [{eng_label}] {em} -> {', '.join(plist)} (współdzielą pulę limitów!)")
         print("   Wskazówka: Aby wylogować profil i zwolnić miejsce na unikalne konto: agy-manager logout <profile>")
     print()
 
@@ -260,14 +265,18 @@ def cmd_login(args):
         print(f"\n✓ Sukces: Profil {p}{email_disp} zostal pomyslnie zalogowany!")
         core.auto_expand_slots()
 
-        # Verify duplicate account
-        dups = core.get_duplicate_accounts()
-        if email_str and email_str in dups:
-            other_p = [x for x in dups[email_str] if x != p]
-            print(f"\n⚠️  UWAGA: Wykryto zduplikowane konto Google!")
-            print(f"   Konto '{email_str}' jest już używane na profilu: {', '.join(other_p)}.")
-            print(f"   Profile te dzielą tę samą pulę limitów. Powinniśmy się wystrzegać takich akcji!")
-            print(f"   Aby wylogować i zwolnić profil na inne konto: agy-manager logout {p}")
+        # Verify duplicate account within the SAME engine
+        engine = core.get_profile_engine(p)
+        dups = core.get_duplicate_accounts(engine)
+        email_lower = email_str.strip().lower()
+        if email_lower and email_lower in dups:
+            other_p = [x for x in dups[email_lower] if x != p]
+            if other_p:
+                engine_name = "Google" if engine == "google" else ("Anthropic Claude" if engine == "claude" else "OpenAI Codex")
+                print(f"\n⚠️  UWAGA: Wykryto zduplikowane konto {engine_name}!")
+                print(f"   Konto '{email_str}' jest już używane na innym profilu {engine_name}: {', '.join(other_p)}.")
+                print(f"   Profile te dzielą tę samą pulę limitów {engine_name}. Powinniśmy się wystrzegać takich akcji!")
+                print(f"   Aby wylogować i zwolnić profil na inne konto: agy-manager logout {p}")
     else:
         print(f"\nNie udalo sie zalogowac profilu {p}. Sprobuj ponownie.")
 
