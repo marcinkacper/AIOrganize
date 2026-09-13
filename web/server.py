@@ -528,8 +528,17 @@ def unlock_lock(req: UnlockRequest):
 @app.delete("/api/conversations/{uuid}")
 def delete_conversation_route(uuid: str, force: bool = False):
     try:
+        online_map = core.get_online_conversations_map()
+        if not force and uuid in online_map:
+            prof = online_map[uuid].get("profile") or "aktywnym profilu"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Nie można usunąć aktywnej rozmowy! Sesja jest aktualnie uruchomiona na {prof}. Zatrzymaj sesję przed jej usunięciem."
+            )
         core.delete_conversation(uuid, force=force)
         return {"success": True, "uuid": uuid}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

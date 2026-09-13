@@ -1285,6 +1285,13 @@ def list_conversations(
         # Clean up file:// prefix or JSON formatting
         if ws_val:
             ws_val = ws_val.replace("file://", "").strip("[]\"' ")
+            if '","' in ws_val:
+                ws_val = ws_val.split('","')[0]
+            elif '", "' in ws_val:
+                ws_val = ws_val.split('", "')[0]
+            elif '\",' in ws_val:
+                ws_val = ws_val.split('\",')[0]
+            ws_val = ws_val.replace('"', '').replace('\\', '').strip()
 
         meta["workspace"] = ws_val or "-"
         meta["size_bytes"] = size
@@ -1429,11 +1436,37 @@ def delete_conversation(uuid_str: str, force: bool = False) -> bool:
         else:
             stop_conversation(uuid_str, timeout_sec=5)
 
+    # Check online map (live processes and presence locks)
+    online_map = get_online_conversations_map()
+    if uuid_str in online_map and not force:
+        info = online_map[uuid_str]
+        prof = info.get("profile") or "aktywnym profilu"
+        raise RuntimeError(f"Cannot delete conversation: currently active on profile '{prof}'. Stop session first.")
+
     # Check active sessions in manager.db
     for s in get_active_sessions():
         if s.get("conversation_uuid") == uuid_str:
             if not force:
                 raise RuntimeError(f"Cannot delete conversation: currently active in profile {s.get('profile')}. Stop session first.")
+
+    # Check running tmux sessions
+    try:
+        t_res = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if t_res.returncode == 0:
+            for sname in t_res.stdout.splitlines():
+                sname = sname.strip()
+                if (uuid_str in sname) or (len(uuid_str) >= 8 and uuid_str[:8] in sname):
+                    if not force:
+                        raise RuntimeError(f"Cannot delete conversation: attached to active tmux session '{sname}'. Stop session first.")
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
 
     # 1. Remove database files (.db, .db-wal, .db-shm)
     for base_dir in [CONVERSATIONS_DIR, "/home/kacper/.gemini/antigravity-cli/conversations"]:

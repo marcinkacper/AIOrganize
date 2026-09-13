@@ -695,11 +695,25 @@
       }
     }
 
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function highlightText(text, query) {
-      if (!text || !query) return text || '';
-      const esc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (text === null || text === undefined) return '';
+      const safeText = escapeHtml(String(text));
+      if (!query) return safeText;
+      const cleanQ = query.trim();
+      if (!cleanQ) return safeText;
+      const esc = cleanQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const reg = new RegExp(`(${esc})`, 'gi');
-      return String(text).replace(reg, '<mark style="background: rgba(240, 136, 62, 0.4); color: #fff; padding: 1px 3px; border-radius: 3px;">$1</mark>');
+      return safeText.replace(reg, '<mark style="background: rgba(240, 136, 62, 0.4); color: #fff; padding: 1px 3px; border-radius: 3px;">$1</mark>');
     }
 
     function applyConversationsFilter() {
@@ -1409,7 +1423,13 @@
       return null;
     }
 
-    async function launchConversationAuto(uuid, mode, workspace) {
+    async function launchConversationAuto(uuid, mode, workspace = null) {
+      if (!workspace) {
+        const conv = (allConversations || []).find(c => c.uuid === uuid);
+        if (conv && conv.workspace && conv.workspace !== '-') {
+          workspace = conv.workspace;
+        }
+      }
       const best = findBestProfile();
       if (!best) {
         alert('Brak dostępnych zalogowanych kont Google!');
@@ -1515,15 +1535,15 @@
             <button class="btn btn-sm" style="background: #238636; color: #fff; border-color: #2ea043; font-weight: 600;" onclick="openTerminalWindow('${prof}', '${sess}', '${c.uuid}')" title="Dołącz do aktywnej sesji ${prof} w osobnym oknie">▶ Dołącz (Okno)</button>
             <button class="btn btn-sm" style="border-color: rgba(63, 185, 80, 0.5); color: #3fb950;" onclick="openTerminal('${prof}', '${sess}', '${c.uuid}')" title="Dołącz do aktywnej sesji w modalu">⌨ Modal</button>
             <button class="btn btn-sm btn-danger" onclick="stopTarget('${sess || c.uuid}')" title="Zatrzymaj aktywny proces i sesję tmux">⏹ Stop</button>
-            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Przełącz rozmowę na inne konto">Przełącz...</button>
-            <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
+            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')" title="Przełącz rozmowę na inne konto">Przełącz...</button>
+            <button class="btn btn-sm" disabled style="opacity: 0.35; cursor: not-allowed; border-color: rgba(248,81,73,0.2); color: #8b949e;" title="Rozmowa jest aktywna na ${prof}. Aby ją usunąć, najpierw zatrzymaj sesję (⏹ Stop).">🔒 Usuń</button>
           `;
         } else {
           actionButtons = `
-            <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
-            <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
-            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}', '${(c.workspace || '').replace(/'/g, "\\'")}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
-            <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}', '${(c.title || '').replace(/'/g, "\\'")}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
+            <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
+            <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
+            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
+            <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
           `;
         }
 
@@ -2062,9 +2082,18 @@
       }
     }
 
-    async function deleteConversation(uuid, title) {
+    async function deleteConversation(uuid) {
+      const conv = (allConversations || []).find(c => c.uuid === uuid);
+      const title = conv ? (conv.title || 'Bez tytułu') : 'Bez tytułu';
       const shortUuid = uuid.length >= 5 ? '...' + uuid.slice(-5) : uuid;
-      if (!confirm(`Czy na pewno chcesz trwale usunąć rozmowę ${shortUuid}?\n\n"${title || 'Bez tytułu'}"\n\nSpowoduje to fizyczne usunięcie bazy sqlite, plików brain oraz usunięcie plików z serwerów floty (audi, porsche, ford).`)) {
+
+      // Zabezpieczenie: jeśli rozmowa jest aktywna/online, zabroń usuwania
+      if (conv && conv.is_online) {
+        alert(`⚠️ Nie można usunąć aktywnej rozmowy ${shortUuid}!\n\nRozmowa jest aktualnie uruchomiona na profilu: ${conv.online_profile || 'aktywnym'}.\n\nAby ją usunąć, najpierw zatrzymaj sesję przyciskiem [⏹ Stop].`);
+        return;
+      }
+
+      if (!confirm(`Czy na pewno chcesz trwale usunąć rozmowę ${shortUuid}?\n\n"${title}"\n\nSpowoduje to fizyczne usunięcie bazy sqlite, plików brain oraz usunięcie plików z serwerów floty (audi, porsche, ford).`)) {
         return;
       }
       try {
@@ -2083,8 +2112,14 @@
 
     let currentSwitchWs = '/srv/projects/agy';
 
-    function openSwitchModal(uuid, workspace) {
+    function openSwitchModal(uuid, workspace = null) {
       document.getElementById('switch-uuid').value = uuid;
+      if (!workspace) {
+        const conv = (allConversations || []).find(c => c.uuid === uuid);
+        if (conv && conv.workspace && conv.workspace !== '-') {
+          workspace = conv.workspace;
+        }
+      }
       currentSwitchWs = (workspace && workspace !== '-') ? workspace : '/srv/projects/agy';
       const select = document.getElementById('switch-target');
       select.innerHTML = '';
