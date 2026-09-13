@@ -952,6 +952,41 @@ def get_active_sessions() -> List[Dict[str, Any]]:
             })
         except (PermissionError, FileNotFoundError):
             continue
+
+    # Scan active Claude Code sessions from sessions metadata and tmux
+    for sess_file in glob.glob("/home/kacper/.claude/sessions/*.json") + glob.glob("/srv/agy-manager/profiles/claude-*/config/sessions/*.json"):
+        try:
+            with open(sess_file, "r", encoding="utf-8") as f:
+                c_data = json.load(f)
+            c_pid = c_data.get("pid")
+            if c_pid and os.path.isdir(f"/proc/{c_pid}"):
+                c_uuid = c_data.get("sessionId")
+                c_cwd = c_data.get("cwd")
+                c_started_ms = c_data.get("startedAt")
+                c_started = datetime.fromtimestamp(c_started_ms / 1000).strftime("%Y-%m-%d %H:%M:%S") if c_started_ms else None
+                c_tmux_raw = c_data.get("tmux") or ""
+                c_sess_name = c_tmux_raw.split(":")[0] if ":" in c_tmux_raw else (c_tmux_raw or tmux_pid_to_session.get(c_pid) or "agy-claude-01")
+                c_profile = "claude-01"
+                if "claude-02" in sess_file:
+                    c_profile = "claude-02"
+
+                c_tdata = tmux_info.get(c_sess_name, {})
+                active.append({
+                    "pid": c_pid,
+                    "profile": c_profile,
+                    "session_name": c_sess_name,
+                    "conversation_uuid": c_uuid,
+                    "cmdline": "claude",
+                    "home": "/home/kacper",
+                    "cwd": c_cwd,
+                    "started_at": c_tdata.get("created_at") or c_started,
+                    "started_epoch": c_tdata.get("created_epoch") or (c_started_ms / 1000 if c_started_ms else None),
+                    "attached_count": c_tdata.get("attached_count", 0),
+                    "engine": "claude"
+                })
+        except Exception:
+            pass
+
     return active
 
 def get_profile_models(profile: str) -> List[Tuple[str, str]]:
@@ -1083,9 +1118,12 @@ def get_conversation_machines() -> Dict[str, str]:
 
 def classify_conversation(meta: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     """
-    Classifies a conversation as 'pawel', 'smartstaff', or 'dev'.
+    Classifies a conversation as 'pawel', 'smartstaff', 'claude', or 'dev'.
     Returns (category, agent_label).
     """
+    if meta.get("category") == "claude" or meta.get("engine") == "claude" or meta.get("agent_label") == "Claude Code":
+        return "claude", "Claude Code"
+
     title = meta.get("title") or ""
     preview = meta.get("preview") or ""
     text = f"{title} {preview}".lower()
@@ -1244,6 +1282,110 @@ def get_online_conversations_map() -> Dict[str, Dict[str, Any]]:
 
     return online_map
 
+CLAUDE_CONV_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def get_claude_conversations(online_uuids: Optional[set] = None, max_files: int = 150) -> List[Dict[str, Any]]:
+    if online_uuids is None:
+        online_uuids = set()
+    files = []
+    for base in ['/home/kacper/.claude/projects', '/srv/agy-manager/profiles/claude-01/config/projects', '/srv/agy-manager/profiles/claude-02/config/projects']:
+        if os.path.isdir(base):
+            for f in glob.glob(f'{base}/*/*.jsonl'):
+                if '/subagents/' not in f:
+                    files.append(f)
+    try:
+        files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    except Exception:
+        pass
+
+    result = []
+    for f in files[:max_files]:
+        uuid_str = os.path.splitext(os.path.basename(f))[0]
+        if len(result) >= 50 and uuid_str not in online_uuids:
+            continue
+
+        try:
+            mtime_epoch = os.path.getmtime(f)
+            mtime_iso = datetime.fromtimestamp(mtime_epoch).isoformat()
+            size_bytes = os.path.getsize(f)
+        except Exception:
+            continue
+
+        cached = CLAUDE_CONV_CACHE.get(uuid_str)
+        if cached and cached.get('mtime_epoch') == mtime_epoch and cached.get('size_bytes') == size_bytes:
+            item = dict(cached['item'])
+            result.append(item)
+            continue
+
+        title = ''
+        preview = ''
+        ws = ''
+        created_at = None
+        steps = 0
+        try:
+            with open(f, 'r', encoding='utf-8', errors='replace') as fp:
+                for line in fp:
+                    steps += 1
+                    try:
+                        d = json.loads(line)
+                        if not created_at and 'timestamp' in d:
+                            created_at = str(d['timestamp'])[:19].replace('T', ' ')
+                        t = d.get('type')
+                        if t == 'user' and not title:
+                            if not ws and d.get('cwd'):
+                                ws = d.get('cwd')
+                            msg = d.get('message', {})
+                            if isinstance(msg, dict):
+                                c = msg.get('content', '')
+                                if isinstance(c, list):
+                                    for part in c:
+                                        if isinstance(part, dict) and part.get('type') == 'text':
+                                            title = part.get('text', '').strip()
+                                            break
+                                elif isinstance(c, str):
+                                    title = c.strip()
+                        elif t == 'assistant':
+                            msg = d.get('message', {})
+                            if isinstance(msg, dict):
+                                c = msg.get('content', '')
+                                if isinstance(c, list):
+                                    for part in c:
+                                        if isinstance(part, dict) and part.get('type') == 'text':
+                                            preview = part.get('text', '').strip()
+                                elif isinstance(c, str):
+                                    preview = c.strip()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        if not ws:
+            parent_dir = os.path.basename(os.path.dirname(f))
+            if parent_dir.startswith('-'):
+                ws = '/' + parent_dir[1:].replace('-', '/')
+
+        item = {
+            'uuid': uuid_str,
+            'title': title[:120] if title else f'Claude Conversation {uuid_str[-5:]}',
+            'preview': preview[:120] if preview else '',
+            'steps': steps,
+            'last_modified': mtime_iso,
+            'workspace': ws or '-',
+            'size_bytes': size_bytes,
+            'has_wal': False,
+            'machine': 'ferrari',
+            'agent_label': 'Claude Code',
+            'category': 'claude',
+            'created_at': created_at or mtime_iso[:19].replace('T', ' ')
+        }
+        CLAUDE_CONV_CACHE[uuid_str] = {
+            'mtime_epoch': mtime_epoch,
+            'size_bytes': size_bytes,
+            'item': item
+        }
+        result.append(item)
+    return result
+
 def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
     summaries_db = os.path.join(SHARED_DIR, "conversation_summaries.db")
     results = {}
@@ -1265,7 +1407,7 @@ def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
             pass
 
     db_files = glob.glob(os.path.join(CONVERSATIONS_DIR, "*.db"))
-    counts = {"total": 0, "dev": 0, "smartstaff": 0, "pawel": 0, "smartstaff_other": 0, "online": len(online_map)}
+    counts = {"total": 0, "dev": 0, "smartstaff": 0, "pawel": 0, "smartstaff_other": 0, "online": len(online_map), "claude": 0}
     search_clean = search.strip().lower() if search and search.strip() else None
 
     for db_path in db_files[:600]:
@@ -1285,6 +1427,21 @@ def get_conversations_stats(search: Optional[str] = None) -> Dict[str, int]:
         elif cat == "smartstaff":
             counts["smartstaff_other"] += 1
             counts["smartstaff"] += 1
+
+    # Include Claude Code conversations in stats
+    try:
+        online_uuids = set(online_map.keys())
+        claude_convs = get_claude_conversations(online_uuids=online_uuids, max_files=150)
+        for c in claude_convs:
+            if search_clean:
+                match_str = f"{c['uuid']} {c.get('title','')} {c.get('preview','')} {c.get('workspace','')} Claude Code".lower()
+                if search_clean not in match_str:
+                    continue
+            counts["total"] += 1
+            counts["dev"] += 1
+            counts["claude"] += 1
+    except Exception:
+        pass
 
     return counts
 
@@ -1443,7 +1600,9 @@ def list_conversations(
         if target_category != "all":
             if target_category == "online" and not meta["is_online"]:
                 continue
-            elif target_category == "dev" and cat != "dev":
+            elif target_category == "dev" and cat not in ("dev", "claude"):
+                continue
+            elif target_category == "claude" and cat != "claude":
                 continue
             elif target_category == "smartstaff" and cat not in ["smartstaff", "pawel"]:
                 continue
@@ -1458,6 +1617,54 @@ def list_conversations(
                 continue
 
         final_list.append(meta)
+
+    # Append Claude Code conversations
+    try:
+        online_uuids = set(online_map.keys())
+        claude_convs = get_claude_conversations(online_uuids=online_uuids, max_files=150)
+        for c in claude_convs:
+            c_uuid = c["uuid"]
+            if c_uuid in seen:
+                continue
+            seen.add(c_uuid)
+            online_info = online_map.get(c_uuid)
+            if online_info:
+                c["is_online"] = True
+                c["online_profile"] = online_info.get("profile")
+                c["online_session"] = online_info.get("session_name")
+                c["online_pid"] = online_info.get("pid")
+                c["online_cwd"] = online_info.get("cwd")
+                c["session_started_at"] = online_info.get("started_at")
+                c["attached_count"] = online_info.get("attached_count", 0)
+            else:
+                c["is_online"] = False
+                c["online_profile"] = None
+                c["online_session"] = None
+                c["online_pid"] = None
+                c["online_cwd"] = None
+                c["session_started_at"] = None
+                c["attached_count"] = 0
+
+            # Category filtering for Claude
+            if target_category != "all":
+                if target_category == "online" and not c["is_online"]:
+                    continue
+                elif target_category == "dev":
+                    pass  # Claude Code conversations are included in Dev
+                elif target_category == "claude":
+                    pass  # Specific Claude Code tab
+                else:
+                    # smartstaff, pawel, smartstaff_other
+                    continue
+
+            if search_clean:
+                match_str = f"{c['uuid']} {c['title']} {c.get('preview', '')} {c['workspace']} {c.get('machine', '')} Claude Code".lower()
+                if search_clean not in match_str:
+                    continue
+
+            final_list.append(c)
+    except Exception:
+        pass
 
     # Sort online conversations to the top, then by last_modified descending
     final_list.sort(key=lambda x: (1 if x.get("is_online") else 0, x.get("last_modified") or ""), reverse=True)
@@ -1600,6 +1807,17 @@ def delete_conversation(uuid_str: str, force: bool = False) -> bool:
                     os.remove(fpath)
                 except Exception:
                     pass
+
+    # 1b. Remove Claude Code JSONL project files if any
+    for c_base in ['/home/kacper/.claude/projects', '/srv/agy-manager/profiles/claude-01/config/projects', '/srv/agy-manager/profiles/claude-02/config/projects']:
+        if os.path.isdir(c_base):
+            for c_f in glob.glob(f'{c_base}/*/{uuid_str}.jsonl'):
+                try:
+                    os.remove(c_f)
+                except Exception:
+                    pass
+    if uuid_str in CLAUDE_CONV_CACHE:
+        CLAUDE_CONV_CACHE.pop(uuid_str, None)
 
     # 2. Remove brain directory and presence locks
     for base_dir in [os.path.join(SHARED_DIR, "brain"), "/home/kacper/.gemini/antigravity-cli/brain"]:

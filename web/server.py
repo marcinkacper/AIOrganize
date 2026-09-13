@@ -237,6 +237,21 @@ def get_profiles():
         primary_tmux_name = primary_sess["session_name"] if primary_sess else tmux_ops.get_tmux_session_name(p)
 
         q = cached_quotas.get(p, {})
+        if (p.startswith("claude-") or p == "claude") and logged_in:
+            up_str = q.get("updated_at")
+            need_live = not up_str
+            if up_str:
+                try:
+                    up_dt = datetime.fromisoformat(up_str.replace("Z", "+00:00"))
+                    if (datetime.now(timezone.utc) - up_dt).total_seconds() > 45:
+                        need_live = True
+                except Exception:
+                    need_live = True
+            if need_live:
+                try:
+                    q = quota.fetch_claude_quota(p)
+                except Exception:
+                    pass
         email = core.get_profile_email(p)
         engine_type = core.get_profile_engine(p)
         eng_dups = dups_by_engine.get(engine_type, {})
@@ -817,7 +832,8 @@ async def websocket_terminal(
         run_cmd = ["bash", "-l"]
     elif profile == "claude" or profile.startswith("claude-"):
         cfg_dir = core.get_claude_config_dir(profile) if profile.startswith("claude-") else "/home/kacper/.claude"
-        run_cmd = ["bash", "-c", f"CLAUDE_CONFIG_DIR={cfg_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude"]
+        resume_arg = f"--resume {active_uuid}" if active_uuid else ""
+        run_cmd = ["bash", "-c", f"CLAUDE_CONFIG_DIR={cfg_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin claude {resume_arg}".strip()]
     elif profile == "codex" or profile.startswith("codex-"):
         cdx_dir = core.get_codex_home_dir(profile) if profile.startswith("codex-") else "/home/kacper/.codex"
         run_cmd = ["bash", "-c", f"CODEX_HOME={cdx_dir} HOME=/home/kacper PATH=/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin codex"]
@@ -836,10 +852,24 @@ async def websocket_terminal(
 
     ws_dir = workspace_dir
     if not ws_dir or ws_dir == "/srv/projects/agy":
-        if target.lower() in ("konsola", "auto", "best") or (session_name and "klajner" in session_name.lower()):
-            ws_dir = "/srv/projects/klajner/project"
-        else:
-            ws_dir = "/srv/projects/agy"
+        if active_uuid and (profile == "claude" or profile.startswith("claude-")):
+            try:
+                for c_base in ['/home/kacper/.claude/projects', '/srv/agy-manager/profiles/claude-01/config/projects', '/srv/agy-manager/profiles/claude-02/config/projects']:
+                    f_matches = glob.glob(f"{c_base}/*/{active_uuid}.jsonl")
+                    if f_matches:
+                        p_name = os.path.basename(os.path.dirname(f_matches[0]))
+                        if p_name.startswith("-"):
+                            cand = "/" + p_name[1:].replace("-", "/")
+                            if os.path.isdir(cand):
+                                ws_dir = cand
+                                break
+            except Exception:
+                pass
+        if not ws_dir or ws_dir == "/srv/projects/agy":
+            if target.lower() in ("konsola", "auto", "best") or (session_name and "klajner" in session_name.lower()):
+                ws_dir = "/srv/projects/klajner/project"
+            else:
+                ws_dir = "/srv/projects/agy"
 
     proc = subprocess.Popen(
         ["tmux", "new-session", "-A", "-s", session_name, "-c", ws_dir] + run_cmd,

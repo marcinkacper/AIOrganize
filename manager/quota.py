@@ -2,6 +2,7 @@ import subprocess
 import json
 import os
 import time
+import urllib.request
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
@@ -42,30 +43,88 @@ def fetch_claude_quota(profile: str) -> Dict[str, Any]:
     if not os.path.isfile(c_path) and p == "claude":
         c_path = "/home/kacper/.claude.json"
 
-    fh_avail, sd_avail = 100, 100
+    fh_avail, sd_avail = 100.0, 100.0
     fh_res, sd_res = None, None
     fh_human, sd_human = "-", "-"
+    live_fetched = False
 
-    if os.path.isfile(c_path):
+    # 1. Try real-time live usage fetch via Anthropic OAuth API
+    cred_paths = [
+        os.path.join(cfg_dir, ".credentials.json"),
+        "/home/kacper/.claude/.credentials.json"
+    ]
+    tokens = []
+    for cp in cred_paths:
+        if os.path.isfile(cp):
+            try:
+                with open(cp, "r", encoding="utf-8") as f:
+                    c_data = json.load(f)
+                tok = c_data.get("claudeAiOauth", {}).get("accessToken")
+                if tok and tok not in [t[1] for t in tokens]:
+                    tokens.append((cp, tok, c_data))
+            except Exception:
+                pass
+
+    for cp, tok, c_data in tokens:
         try:
-            with open(c_path) as f:
+            req = urllib.request.Request(
+                "https://api.anthropic.com/api/oauth/usage",
+                headers={
+                    "Authorization": f"Bearer {tok}",
+                    "User-Agent": "claude-code/2.1.269"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                if resp.status == 200:
+                    raw_body = resp.read().decode("utf-8")
+                    data = json.loads(raw_body)
+                    fh = data.get("five_hour", {})
+                    fh_used = fh.get("utilization", 0) if fh else 0
+                    fh_avail = max(0.0, round(100.0 - (fh_used or 0), 1))
+                    fh_res = fh.get("resets_at") if fh else None
+                    fh_human = parse_relative_time(fh_res)
+
+                    sd = data.get("seven_day", {})
+                    sd_used = sd.get("utilization", 0) if sd else 0
+                    sd_avail = max(0.0, round(100.0 - (sd_used or 0), 1))
+                    sd_res = sd.get("resets_at") if sd else None
+                    sd_human = parse_relative_time(sd_res)
+
+                    live_fetched = True
+
+                    # Synchronize valid credentials if needed
+                    target_cred = os.path.join(cfg_dir, ".credentials.json")
+                    if cp != target_cred and os.path.isdir(cfg_dir):
+                        try:
+                            with open(target_cred, "w", encoding="utf-8") as out_f:
+                                json.dump(c_data, out_f, indent=2)
+                        except Exception:
+                            pass
+                    break
+        except Exception:
+            pass
+
+    # 2. Fallback to cached .claude.json if live fetch failed
+    if not live_fetched and os.path.isfile(c_path):
+        try:
+            with open(c_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             util = data.get("cachedUsageUtilization", {}).get("utilization", {})
             fh = util.get("five_hour", {})
             fh_used = fh.get("utilization", 0) if fh else 0
-            fh_avail = max(0, round(100 - (fh_used or 0), 1))
+            fh_avail = max(0.0, round(100.0 - (fh_used or 0), 1))
             fh_res = fh.get("resets_at") if fh else None
             fh_human = parse_relative_time(fh_res)
 
             sd = util.get("seven_day", {})
             sd_used = sd.get("utilization", 0) if sd else 0
-            sd_avail = max(0, round(100 - (sd_used or 0), 1))
+            sd_avail = max(0.0, round(100.0 - (sd_used or 0), 1))
             sd_res = sd.get("resets_at") if sd else None
             sd_human = parse_relative_time(sd_res)
         except Exception:
             pass
 
-    return {
+    res = {
         "profile": profile,
         "logged_in": True,
         "gemini_effective_pct": None,
@@ -89,9 +148,14 @@ def fetch_claude_quota(profile: str) -> Dict[str, Any]:
         "error": None,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
+    try:
+        save_quota_to_db(res)
+    except Exception:
+        pass
+    return res
 
 def fetch_codex_quota(profile: str) -> Dict[str, Any]:
-    return {
+    res = {
         "profile": profile,
         "logged_in": True,
         "gemini_effective_pct": 100,
@@ -115,6 +179,11 @@ def fetch_codex_quota(profile: str) -> Dict[str, Any]:
         "error": None,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
+    try:
+        save_quota_to_db(res)
+    except Exception:
+        pass
+    return res
 
 def fetch_profile_quota(profile: str) -> Dict[str, Any]:
     if not validate_profile_name(profile) or not is_profile_logged_in(profile):

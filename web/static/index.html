@@ -426,6 +426,9 @@
     <button id="tab-btn-dev" class="btn btn-sm btn-primary" onclick="switchConvCategory('dev')" style="padding: 6px 14px; font-weight: 600;">
       🖥️ Sesje Dev / Robocze <span id="count-badge-dev" style="background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px;">...</span>
     </button>
+    <button id="tab-btn-claude" class="btn btn-sm" onclick="switchConvCategory('claude')" style="padding: 6px 14px; font-weight: 500; border-color: rgba(163, 113, 247, 0.4); color: #d2a8ff;">
+      🟣 Claude Code <span id="count-badge-claude" style="background: rgba(163, 113, 247, 0.25); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px; font-weight: 700;">...</span>
+    </button>
     <button id="tab-btn-smartstaff" class="btn btn-sm" onclick="switchConvCategory('smartstaff')" style="padding: 6px 14px; font-weight: 500;">
       🤖 SmartStaff & Klajner API <span id="count-badge-smartstaff" style="background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 10px; font-size: 11px; margin-left: 4px;">...</span>
     </button>
@@ -614,7 +617,7 @@
 
     function switchConvCategory(cat) {
       currentConvCategory = cat;
-      ['online', 'dev', 'smartstaff', 'all'].forEach(c => {
+      ['online', 'dev', 'claude', 'smartstaff', 'all'].forEach(c => {
         const btn = document.getElementById(`tab-btn-${c}`);
         if (btn) {
           if (c === cat) {
@@ -656,6 +659,9 @@
 
       const devBadge = document.getElementById('count-badge-dev');
       if (devBadge) devBadge.innerText = counts.dev || 0;
+
+      const claudeBadge = document.getElementById('count-badge-claude');
+      if (claudeBadge) claudeBadge.innerText = counts.claude || 0;
 
       const ssBadge = document.getElementById('count-badge-smartstaff');
       if (ssBadge) ssBadge.innerText = counts.smartstaff || 0;
@@ -1600,7 +1606,7 @@
         const machineBadge = `<span class="badge-pill badge-purple" style="font-size: 11px; font-weight: 600; padding: 2px 7px;" title="Uruchomiono na maszynie">🖥 ${highlightText(machineName, query)}</span>`;
         const highlightedTitle = highlightText(c.title, query);
         const agentBadge = c.agent_label 
-          ? `<span class="badge-pill ${c.category === 'pawel' ? 'badge-yellow' : 'badge-blue'}" style="font-size: 11px; font-weight: 600; margin-right: 6px; padding: 2px 7px;">${c.category === 'pawel' ? '👑' : '🤖'} ${c.agent_label}</span>` 
+          ? `<span class="badge-pill ${c.category === 'pawel' ? 'badge-yellow' : (c.category === 'claude' ? 'badge-purple' : 'badge-blue')}" style="font-size: 11px; font-weight: 600; margin-right: 6px; padding: 2px 7px;">${c.category === 'pawel' ? '👑' : (c.category === 'claude' ? '🟣' : '🤖')} ${c.agent_label}</span>` 
           : '';
 
         const onlineBadge = isOnline
@@ -1618,22 +1624,30 @@
 
         let actionButtons = '';
         if (isOnline) {
-          const prof = c.online_profile || 'best';
+          const prof = c.online_profile || (c.category === 'claude' ? 'claude-01' : 'best');
           const sess = c.online_session || '';
           actionButtons = `
             <button class="btn btn-sm" style="background: #238636; color: #fff; border-color: #2ea043; font-weight: 600;" onclick="openTerminalWindow('${prof}', '${sess}', '${c.uuid}')" title="Dołącz do aktywnej sesji ${prof} w osobnym oknie">▶ Dołącz (Okno)</button>
             <button class="btn btn-sm" style="border-color: rgba(63, 185, 80, 0.5); color: #3fb950;" onclick="openTerminal('${prof}', '${sess}', '${c.uuid}')" title="Dołącz do aktywnej sesji w modalu">⌨ Modal</button>
             <button class="btn btn-sm btn-danger" onclick="stopTarget('${sess || c.uuid}')" title="Zatrzymaj aktywny proces i sesję tmux">⏹ Stop</button>
-            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')" title="Przełącz rozmowę na inne konto">Przełącz...</button>
+            ${c.category !== 'claude' ? `<button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')" title="Przełącz rozmowę na inne konto">Przełącz...</button>` : ''}
             <button class="btn btn-sm" disabled style="opacity: 0.35; cursor: not-allowed; border-color: rgba(248,81,73,0.2); color: #8b949e;" title="Rozmowa jest aktywna na ${prof}. Aby ją usunąć, najpierw zatrzymaj sesję (⏹ Stop).">🔒 Usuń</button>
           `;
         } else {
-          actionButtons = `
-            <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
-            <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
-            <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
-            <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
-          `;
+          if (c.category === 'claude') {
+            actionButtons = `
+              <button class="btn btn-sm btn-console" onclick="openTerminalWindow('claude-01', '', '${c.uuid}')" title="Wznów rozmowę Claude Code w osobnym oknie">⧉ Wznów (Okno)</button>
+              <button class="btn btn-sm" style="border-color: rgba(163, 113, 247, 0.5); color: #d2a8ff;" onclick="openTerminal('claude-01', '', '${c.uuid}')" title="Wznów rozmowę Claude Code w modalu">⌨ Modal</button>
+              <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}')" title="Trwale usuń konwersację Claude Code">🗑 Usuń</button>
+            `;
+          } else {
+            actionButtons = `
+              <button class="btn btn-sm btn-console" onclick="launchConversationAuto('${c.uuid}', 'window')" title="Uruchom na najpełniejszym koncie w osobnym oknie">⧉ Okno</button>
+              <button class="btn btn-sm" onclick="launchConversationAuto('${c.uuid}', 'modal')" title="Uruchom na najpełniejszym koncie w oknie modalnym">⌨ Modal</button>
+              <button class="btn btn-sm btn-primary" onclick="openSwitchModal('${c.uuid}')" title="Ręcznie wybierz profil docelowy">Przełącz...</button>
+              <button class="btn btn-sm" style="border-color: rgba(248,81,73,0.4); color: #f85149;" onclick="deleteConversation('${c.uuid}')" title="Trwale usuń z bazy i wszystkich serwerów floty">🗑 Usuń</button>
+            `;
+          }
         }
 
         const dateHtml = `
