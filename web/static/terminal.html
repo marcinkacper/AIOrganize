@@ -522,36 +522,20 @@
 
     // Zaznaczanie i kopiowanie tekstu TYLKO z klawiszem Shift
     // Kliknięcie bez Shiftu nie zaznacza tekstu i nie nadpisuje schowka, tylko od razu daje gotowość do wprowadzania tekstu
+    let isShiftSelecting = false;
+    let shiftSelectedText = "";
+    let justCopiedShiftSelection = false;
+
     container.addEventListener("mousedown", (e) => {
-      if (!e.shiftKey) {
+      if (e.shiftKey) {
+        isShiftSelecting = true;
+        shiftSelectedText = "";
+      } else {
+        isShiftSelecting = false;
+        shiftSelectedText = "";
         if (term.hasSelection()) {
           term.clearSelection();
         }
-      }
-      term.focus();
-    });
-
-    container.addEventListener("mouseup", (e) => {
-      if (e.shiftKey && term.hasSelection()) {
-        const sel = term.getSelection();
-        if (sel && sel.trim().length > 0) {
-          lastSelection = sel;
-          const ok = copyTextToClipboard(sel);
-          if (ok) {
-            showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
-          }
-        }
-      } else if (!e.shiftKey) {
-        if (term.hasSelection()) {
-          term.clearSelection();
-        }
-      }
-      term.focus();
-    });
-
-    container.addEventListener("click", (e) => {
-      if (!e.shiftKey && term.hasSelection()) {
-        term.clearSelection();
       }
       term.focus();
     });
@@ -559,10 +543,55 @@
     term.onSelectionChange(() => {
       if (term.hasSelection()) {
         const s = term.getSelection();
-        if (s && s.trim().length > 0) {
+        if (s && s.length > 0) {
           lastSelection = s;
+          shiftSelectedText = s;
         }
       }
+    });
+
+    container.addEventListener("mousemove", (e) => {
+      if (e.shiftKey && term.hasSelection()) {
+        const s = term.getSelection();
+        if (s && s.length > 0) {
+          isShiftSelecting = true;
+          lastSelection = s;
+          shiftSelectedText = s;
+        }
+      }
+    });
+
+    // Puszczenie myszy: jeśli zaznaczano z Shiftem, natychmiast wrzucamy w schowek i nie odznaczamy
+    window.addEventListener("mouseup", (e) => {
+      const termSel = term.hasSelection() ? term.getSelection() : "";
+      const winSel = window.getSelection() ? window.getSelection().toString() : "";
+      const candidate = (termSel && termSel.length > 0 ? termSel : "") || shiftSelectedText || lastSelection || winSel;
+
+      if ((isShiftSelecting || e.shiftKey) && candidate && candidate.trim().length > 0) {
+        lastSelection = candidate;
+        copyTextToClipboard(candidate);
+        showToast(`Skopiowano (${candidate.length} zn.) do schowka!`);
+        justCopiedShiftSelection = true;
+        setTimeout(() => { justCopiedShiftSelection = false; }, 350);
+      } else if (!e.shiftKey && !justCopiedShiftSelection) {
+        if (term.hasSelection()) {
+          term.clearSelection();
+        }
+      }
+      isShiftSelecting = false;
+      shiftSelectedText = "";
+    });
+
+    container.addEventListener("click", (e) => {
+      if (justCopiedShiftSelection) {
+        return;
+      }
+      if (!e.shiftKey) {
+        if (term.hasSelection()) {
+          term.clearSelection();
+        }
+      }
+      term.focus();
     });
 
     // Native browser copy event interception (Ctrl+C, browser edit menu)

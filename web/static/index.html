@@ -1423,39 +1423,22 @@
       });
 
       let modalLastSelection = '';
+      let isModalShiftSelecting = false;
+      let modalShiftSelectedText = '';
+      let justCopiedModalShiftSelection = false;
 
       // Zaznaczanie i kopiowanie tekstu TYLKO z klawiszem Shift
       // Kliknięcie bez Shiftu nie zaznacza tekstu i nie nadpisuje schowka, tylko od razu daje gotowość do wprowadzania tekstu
       container.addEventListener('mousedown', (e) => {
-        if (!e.shiftKey) {
+        if (e.shiftKey) {
+          isModalShiftSelecting = true;
+          modalShiftSelectedText = '';
+        } else {
+          isModalShiftSelecting = false;
+          modalShiftSelectedText = '';
           if (term.hasSelection()) {
             term.clearSelection();
           }
-        }
-        term.focus();
-      });
-
-      container.addEventListener('mouseup', (e) => {
-        if (e.shiftKey && term.hasSelection()) {
-          const sel = term.getSelection();
-          if (sel && sel.trim().length > 0) {
-            modalLastSelection = sel;
-            const ok = copyTextToClipboard(sel);
-            if (ok) {
-              showToast(`Skopiowano (${sel.length} zn.) do schowka!`);
-            }
-          }
-        } else if (!e.shiftKey) {
-          if (term.hasSelection()) {
-            term.clearSelection();
-          }
-        }
-        term.focus();
-      });
-
-      container.addEventListener('click', (e) => {
-        if (!e.shiftKey && term.hasSelection()) {
-          term.clearSelection();
         }
         term.focus();
       });
@@ -1463,10 +1446,55 @@
       term.onSelectionChange(() => {
         if (term.hasSelection()) {
           const s = term.getSelection();
-          if (s && s.trim().length > 0) {
+          if (s && s.length > 0) {
             modalLastSelection = s;
+            modalShiftSelectedText = s;
           }
         }
+      });
+
+      container.addEventListener('mousemove', (e) => {
+        if (e.shiftKey && term.hasSelection()) {
+          const s = term.getSelection();
+          if (s && s.length > 0) {
+            isModalShiftSelecting = true;
+            modalLastSelection = s;
+            modalShiftSelectedText = s;
+          }
+        }
+      });
+
+      // Puszczenie myszy: jeśli zaznaczano z Shiftem, natychmiast wrzucamy w schowek i nie odznaczamy
+      window.addEventListener('mouseup', (e) => {
+        const termSel = term.hasSelection() ? term.getSelection() : '';
+        const winSel = window.getSelection() ? window.getSelection().toString() : '';
+        const candidate = (termSel && termSel.length > 0 ? termSel : '') || modalShiftSelectedText || modalLastSelection || winSel;
+
+        if ((isModalShiftSelecting || e.shiftKey) && candidate && candidate.trim().length > 0) {
+          modalLastSelection = candidate;
+          copyTextToClipboard(candidate);
+          showToast(`Skopiowano (${candidate.length} zn.) do schowka!`);
+          justCopiedModalShiftSelection = true;
+          setTimeout(() => { justCopiedModalShiftSelection = false; }, 350);
+        } else if (!e.shiftKey && !justCopiedModalShiftSelection) {
+          if (term.hasSelection()) {
+            term.clearSelection();
+          }
+        }
+        isModalShiftSelecting = false;
+        modalShiftSelectedText = '';
+      });
+
+      container.addEventListener('click', (e) => {
+        if (justCopiedModalShiftSelection) {
+          return;
+        }
+        if (!e.shiftKey) {
+          if (term.hasSelection()) {
+            term.clearSelection();
+          }
+        }
+        term.focus();
       });
 
       // Keyboard shortcuts for Copy & Paste
