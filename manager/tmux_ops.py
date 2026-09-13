@@ -190,6 +190,10 @@ def start_profile_session(
         check=False
     )
     subprocess.run(
+        ["tmux", "set-option", "-t", session_name, "focus-events", "off"],
+        check=False
+    )
+    subprocess.run(
         ["tmux", "set-window-option", "-t", session_name, "mode-style", "bg=colour237,fg=colour111"],
         check=False
     )

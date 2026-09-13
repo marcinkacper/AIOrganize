@@ -639,6 +639,7 @@ async def websocket_terminal(
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "pane-border-status", "top"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-s", "terminal-overrides", "xterm*:csr@:il@:il1@:dl@:dl1@:rin@:indn@"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "on"], capture_output=True, check=False)
+    subprocess.run(["tmux", "set-option", "-t", session_name, "focus-events", "off"], capture_output=True, check=False)
     subprocess.run(["tmux", "set-window-option", "-t", session_name, "mode-style", "bg=colour237,fg=colour111"], capture_output=True, check=False)
 
     loop = asyncio.get_running_loop()
@@ -659,6 +660,9 @@ async def websocket_terminal(
                 msg = await websocket.receive()
                 if "text" in msg:
                     raw_text = msg["text"]
+                    # Ignore terminal focus-in / focus-out escape sequences to prevent aborting tasks
+                    if raw_text in ("\x1b[I", "\x1b[O"):
+                        continue
                     if raw_text.startswith("{") and "type" in raw_text:
                         try:
                             cmd = json.loads(raw_text)
