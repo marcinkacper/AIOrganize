@@ -1426,26 +1426,50 @@
 
     function findBestProfile() {
       const candidates = (profilesData || [])
-        .filter(p => p.logged_in && !p.is_reserved && (p.name || '').toLowerCase() !== 'klajner' && (p.name || '').toLowerCase() !== 'bash' && (p.name || '').toLowerCase() !== 'workspace' && (p.name || '').toLowerCase() !== 'any')
-        .slice()
-        .sort((a, b) => {
-          const qA = a.quota || {};
-          const qB = b.quota || {};
-          const effA = (qA.gemini_effective_pct !== null && qA.gemini_effective_pct !== undefined) ? qA.gemini_effective_pct : -1;
-          const effB = (qB.gemini_effective_pct !== null && qB.gemini_effective_pct !== undefined) ? qB.gemini_effective_pct : -1;
-          if (effB !== effA) return effB - effA;
+        .filter(p => p.logged_in && !p.is_reserved && (p.name || '').toLowerCase() !== 'klajner' && (p.name || '').toLowerCase() !== 'bash' && (p.name || '').toLowerCase() !== 'workspace' && (p.name || '').toLowerCase() !== 'any');
 
-          const fhA = (qA.gemini_5h_pct !== null && qA.gemini_5h_pct !== undefined) ? qA.gemini_5h_pct : -1;
-          const fhB = (qB.gemini_5h_pct !== null && qB.gemini_5h_pct !== undefined) ? qB.gemini_5h_pct : -1;
-          if (fhB !== fhA) return fhB - fhA;
+      if (!candidates.length) return null;
 
-          const sessA = (a.sessions || []).length;
-          const sessB = (b.sessions || []).length;
-          if (sessA !== sessB) return sessA - sessB;
+      const getEff = (p) => {
+        const q = p.quota || {};
+        return (q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined) ? q.gemini_effective_pct : -1;
+      };
+      const get5h = (p) => {
+        const q = p.quota || {};
+        return (q.gemini_5h_pct !== null && q.gemini_5h_pct !== undefined) ? q.gemini_5h_pct : -1;
+      };
+      const getSess = (p) => (p.sessions || []).length;
 
-          return a.name.localeCompare(b.name);
-        });
-      return candidates.length > 0 ? candidates[0] : null;
+      // Żelazna zasada: nie przypisujemy do kont mających < 50%, dopóki są konta >= 50%
+      let pool = candidates.filter(p => getEff(p) >= 50);
+      if (pool.length === 0) {
+        pool = candidates.filter(p => getEff(p) > 0);
+      }
+      if (pool.length === 0) {
+        pool = candidates;
+      }
+
+      // Sortowanie:
+      // 1. NAJPIERW najmniejsza liczba sesji (0 sesji > 1 sesja > 2 sesje) - zakaz upychania wielu sesji na jednym koncie!
+      // 2. Wśród kont z tą samą liczbą sesji: najwyższy procent tokenów (effB - effA)
+      // 3. Okno 5h (fhB - fhA)
+      pool.sort((a, b) => {
+        const sA = getSess(a);
+        const sB = getSess(b);
+        if (sA !== sB) return sA - sB; // 0 sesji pierwsze, potem 1, potem 2
+
+        const effA = getEff(a);
+        const effB = getEff(b);
+        if (effB !== effA) return effB - effA; // najwyższy limit tokenów
+
+        const fhA = get5h(a);
+        const fhB = get5h(b);
+        if (fhB !== fhA) return fhB - fhA;
+
+        return a.name.localeCompare(b.name);
+      });
+
+      return pool.length > 0 ? pool[0] : null;
     }
 
     function findActiveSessionForUuid(uuid) {
@@ -1468,36 +1492,54 @@
           workspace = conv.workspace;
         }
       }
-      const best = findBestProfile();
-      if (!best) {
-        alert('Brak dostępnych zalogowanych kont Google!');
-        return;
-      }
       const ws = (workspace && workspace !== '-') ? workspace : '/srv/projects/agy';
+
+      // 1. Pobierz optymalne konto bezpośrednio z backendu (/api/pool/best) uwzględniającego stan procesów
+      let bestProfileName = null;
+      let effPct = '';
+      try {
+        const r = await fetch('/api/pool/best');
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.profile) {
+            bestProfileName = d.profile;
+            effPct = d.gemini_effective_pct !== null && d.gemini_effective_pct !== undefined ? `${d.gemini_effective_pct}%` : '';
+          }
+        }
+      } catch (e) {
+        console.warn('Błąd /api/pool/best, używam lokalnego algorytmu:', e);
+      }
+
+      if (!bestProfileName) {
+        const fallback = findBestProfile();
+        if (!fallback) {
+          alert('Brak dostępnych zalogowanych kont Google!');
+          return;
+        }
+        bestProfileName = fallback.name;
+        const q = fallback.quota || {};
+        effPct = (q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined) ? `${q.gemini_effective_pct}%` : '';
+      }
+
       const active = findActiveSessionForUuid(uuid);
-
-      const effPct = (best.quota && best.quota.gemini_effective_pct !== null && best.quota.gemini_effective_pct !== undefined)
-        ? `${best.quota.gemini_effective_pct}%`
-        : 'dostępny';
-
-      if (active && active.profile === best.name) {
-        showToast(`Podłączanie do aktywnej sesji ${best.name} (${effPct})`);
+      if (active && active.profile === bestProfileName) {
+        showToast(`Podłączanie do aktywnej sesji ${bestProfileName} (${effPct})`);
         if (mode === 'window') {
-          openTerminalWindow(best.name, active.session_name, uuid);
+          openTerminalWindow(bestProfileName, active.session_name, uuid);
         } else {
-          openTerminal(best.name, active.session_name, uuid);
+          openTerminal(bestProfileName, active.session_name, uuid);
         }
         return;
       }
 
-      showToast(`Uruchamianie na najpełniejszym koncie: ${best.name} (${effPct})...`);
+      showToast(`Uruchamianie na optymalnym wolnym koncie: ${bestProfileName} (${effPct || 'dostępne'})...`);
 
       try {
         const res = await fetch('/api/switch', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
-            target_profile: best.name,
+            target_profile: bestProfileName,
             uuid: uuid,
             workspace_dir: ws
           })
@@ -1508,9 +1550,9 @@
         }
         const sessionName = data.session_name || null;
         if (mode === 'window') {
-          openTerminalWindow(best.name, sessionName, uuid);
+          openTerminalWindow(bestProfileName, sessionName, uuid);
         } else {
-          openTerminal(best.name, sessionName, uuid);
+          openTerminal(bestProfileName, sessionName, uuid);
         }
         fetchData();
       } catch (err) {

@@ -747,6 +747,30 @@ async def websocket_terminal(
         else:
             session_name = tmux_ops.get_tmux_session_name(target)
 
+    active_uuid = uuid
+    if not active_uuid:
+        for s in core.get_active_sessions():
+            if s.get("session_name") == session_name:
+                active_uuid = s.get("conversation_uuid")
+                break
+            if s.get("profile") == profile and not active_uuid:
+                active_uuid = s.get("conversation_uuid")
+
+    # Jeśli rozmowa już działa w aktywnej sesji na jakimkolwiek profilu (np. account-08),
+    # podłączamy się bezpośrednio do tej aktywnej sesji, zapobiegając duplikacji na starym koncie (np. account-04)
+    if active_uuid:
+        try:
+            online_map = core.get_online_conversations_map()
+            if active_uuid in online_map:
+                on_info = online_map[active_uuid]
+                on_sess = on_info.get("session_name")
+                on_prof = on_info.get("profile")
+                if on_sess and on_prof:
+                    session_name = on_sess
+                    profile = on_prof
+        except Exception:
+            pass
+
     if core.is_profile_reserved(profile):
         await websocket.send_text(f"\r\n[BŁĄD: Profil '{profile}' jest ściśle zarezerwowany dla silnika Pawła i nie może być używany w konsoli!]\r\n")
         await websocket.close(code=1008)
@@ -759,14 +783,6 @@ async def websocket_terminal(
     # Client machine tracking
     client_ip = websocket.client.host if websocket.client else None
     machine = core.resolve_machine(client_ip)
-    active_uuid = uuid
-    if not active_uuid:
-        for s in core.get_active_sessions():
-            if s.get("session_name") == session_name:
-                active_uuid = s.get("conversation_uuid")
-                break
-            if s.get("profile") == profile and not active_uuid:
-                active_uuid = s.get("conversation_uuid")
 
     if active_uuid:
         core.record_conversation_machine(active_uuid, machine, client_ip or "")

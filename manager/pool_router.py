@@ -193,21 +193,27 @@ class AccountPoolRouter:
         if not candidates:
             raise RuntimeError("Brak jakichkolwiek dostępnych kont w puli AGY (z wyłączeniem profilu Klajner)!")
 
-        # Sortuj:
-        # 1. Konta z limitem >= 50% (MIN_QUOTA_THRESHOLD) pierwsze
-        # 2. Najmniejsza liczba aktywnych sesji (0 najpierw, potem 1, potem 2...)
-        # 3. Najwyzszy limit glowny (primary)
-        # 4. Najwyzszy limit dodatkowy (secondary)
-        # 5. Okno 5h
-        candidates.sort(key=lambda x: (
-            1 if x["primary"] >= MIN_QUOTA_THRESHOLD else 0,
+        # Wykluczamy konta poniżej 50%, chyba że absolutnie wszystkie konta mają poniżej 50%
+        valid_candidates = [c for c in candidates if c["primary"] >= MIN_QUOTA_THRESHOLD]
+        if not valid_candidates:
+            # Dopiero gdy brak kont >= 50%, dopuszczamy konta z dodatnim limitem
+            valid_candidates = [c for c in candidates if c["primary"] > 0]
+        if not valid_candidates:
+            valid_candidates = candidates
+
+        # Sortowanie według żelaznych reguł:
+        # 1. Najmniejsza liczba aktywnych sesji (-x["active_count"] przy reverse=True: 0 przed 1, 1 przed 2)
+        # 2. Najwyższy limit główny (primary %)
+        # 3. Najwyższy limit dodatkowy (secondary %)
+        # 4. Okno 5h (five_h)
+        valid_candidates.sort(key=lambda x: (
             -x["active_count"],
             x["primary"],
             x["secondary"],
             x["five_h"]
         ), reverse=True)
 
-        best = candidates[0]
+        best = valid_candidates[0]
         return best["profile"], best["quota"]
 
     async def select_account(self, model: str, conversation_uuid: Optional[str] = None) -> Tuple[str, str, int]:
