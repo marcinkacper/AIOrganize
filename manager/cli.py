@@ -179,8 +179,8 @@ def cmd_login(args):
         env["PATH"] = f"/usr/local/bin:/usr/bin:/bin:/home/kacper/.local/bin:{env.get('PATH', '')}"
         print(f"\n=== Logowanie profilu OpenAI Codex: {p} ===")
         print(f"Katalog profilu: {cdx_dir}")
-        print("Uruchamianie procedury logowania Codex...")
-        subprocess.run(["codex", "login"], env=env)
+        print("Uruchamianie procedury logowania Codex (tryb --device-auth dla serwera)...")
+        subprocess.run(["codex", "login", "--device-auth"], env=env)
         if core.is_profile_logged_in(p):
             email_str = core.get_profile_email(p) or ""
             email_disp = f" ({email_str})" if email_str else ""

@@ -1993,7 +1993,7 @@
       if (provider === 'claude' || profile.startsWith('claude-')) {
         desc = 'Aby zalogować konto Anthropic Claude, uruchom poniższą komendę w Bash Console serwera i dokończ autoryzację w przeglądarce:';
       } else if (provider === 'codex' || profile.startsWith('codex-')) {
-        desc = 'Aby zalogować konto OpenAI Codex, uruchom poniższą komendę w Bash Console serwera i postępuj zgodnie z instrukcjami:';
+        desc = 'Aby zalogować konto OpenAI Codex, uruchom poniższą komendę w Bash Console serwera. Codex wyświetli krótki kod i link do zatwierdzenia w Twojej przeglądarce (auth.openai.com/activate):';
       }
 
       const modalTitle = document.getElementById('login-modal-title');
