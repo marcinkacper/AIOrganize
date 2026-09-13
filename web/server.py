@@ -176,11 +176,26 @@ def get_profiles():
 
         engine_type = core.get_profile_engine(p)
         display_name = p.replace("account-", "agy-") if p.startswith("account-") else p
+        plan_display = None
+        plan_type = None
+        if engine_type == "codex":
+            cdx_info = core.get_codex_account_info(p)
+            plan_display = cdx_info.get("plan_display") or ("ChatGPT Standard" if logged_in else None)
+            plan_type = cdx_info.get("plan_type")
+        elif engine_type == "claude":
+            c_info = core.get_claude_account_info(p)
+            plan_display = c_info.get("plan_display") or ("Claude Pro" if logged_in else None)
+            plan_type = "pro" if logged_in else None
+        elif engine_type == "google":
+            plan_display = "Google AI Pro / Advanced" if logged_in else None
+            plan_type = "google"
 
         data.append({
             "name": p,
             "display_name": display_name,
             "engine": engine_type,
+            "plan_display": plan_display,
+            "plan_type": plan_type,
             "email": email,
             "is_duplicate": is_dup,
             "duplicate_with": dup_with,

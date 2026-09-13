@@ -1144,7 +1144,7 @@
               <div class="quota-bar-fill ${wkBarClass}" style="width: ${wkPct}%;"></div>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
-              Status: <span style="color: #3fb950;">● Dostępne (Claude Code CLI)</span>
+              Plan: <span style="color: #d2a8ff; font-weight: 600;">${p.plan_display || 'Claude Pro'}</span> · <span style="color: #3fb950;">● Dostępne (Claude Code CLI)</span>
             </div>
           </div>
         `;
@@ -1227,7 +1227,7 @@
               <div class="quota-bar-fill bar-high" style="width: 100%;"></div>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
-              Plan: <span style="color: #58a6ff; font-weight: 500;">ChatGPT Plus / Pro</span> · Rolling window
+              Plan: <span style="color: #58a6ff; font-weight: 600;">${p.plan_display || 'ChatGPT Standard'}</span> · Rolling window
             </div>
           </div>
         `;

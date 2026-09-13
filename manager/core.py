@@ -163,6 +163,68 @@ def get_profile_email(profile: str) -> Optional[str]:
         pass
     return None
 
+def get_codex_account_info(profile: str) -> Dict[str, Any]:
+    """
+    Extracts decoded OpenAI claims (email, name, chatgpt_plan_type, subscription_until)
+    from auth.json for a codex profile.
+    """
+    p = resolve_profile_name(profile)
+    codex_home = get_codex_home_dir(p) if p.startswith("codex-") else "/home/kacper/.codex"
+    auth_path = os.path.join(codex_home, "auth.json")
+    if not os.path.isfile(auth_path):
+        return {}
+    try:
+        import base64
+        with open(auth_path, "r", encoding="utf-8") as f:
+            c_auth = json.load(f)
+        id_t = c_auth.get("tokens", {}).get("id_token", "")
+        if id_t and "." in id_t:
+            parts = id_t.split(".")
+            if len(parts) >= 2:
+                payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=="))
+                auth_claims = payload.get("https://api.openai.com/auth", {})
+                raw_plan = auth_claims.get("chatgpt_plan_type") or "standard"
+                
+                plan_names = {
+                    "go": "ChatGPT Go",
+                    "plus": "ChatGPT Plus",
+                    "pro": "ChatGPT Pro",
+                    "team": "ChatGPT Team",
+                    "enterprise": "ChatGPT Enterprise",
+                    "edu": "ChatGPT Edu",
+                    "free": "ChatGPT Free"
+                }
+                plan_display = plan_names.get(raw_plan.lower(), f"ChatGPT {raw_plan.capitalize()}")
+                return {
+                    "email": payload.get("email"),
+                    "name": payload.get("name"),
+                    "plan_type": raw_plan.lower(),
+                    "plan_display": plan_display,
+                    "subscription_active_until": auth_claims.get("chatgpt_subscription_active_until")
+                }
+    except Exception:
+        pass
+    return {}
+
+def get_claude_account_info(profile: str) -> Dict[str, Any]:
+    """
+    Extracts subscription type from .credentials.json or .claude.json for Claude profile.
+    """
+    p = resolve_profile_name(profile)
+    cfg_dir = get_claude_config_dir(p) if p.startswith("claude-") else "/home/kacper"
+    cred_path = os.path.join(cfg_dir, ".credentials.json")
+    plan = "Claude Pro"
+    if os.path.isfile(cred_path):
+        try:
+            with open(cred_path, "r", encoding="utf-8") as f:
+                c_cred = json.load(f)
+            sub = c_cred.get("claudeAiOauth", {}).get("subscriptionType")
+            if sub:
+                plan = f"Claude {sub.capitalize()}"
+        except Exception:
+            pass
+    return {"plan_display": plan}
+
 def get_profile_active_model(profile: str) -> Optional[str]:
     """
     Detects the currently selected model in the profile's Antigravity CLI session.

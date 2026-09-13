@@ -23,7 +23,7 @@ def cmd_profiles(args):
 
     def print_section(title, prof_list, eng):
         print(f"\n=== {title} ({len(prof_list)}) ===")
-        print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'EMAIL':<42} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<20}")
+        print(f"{'PROFILE':<13} {'LOGGED IN':<11} {'PLAN':<16} {'EMAIL':<36} {'TMUX SESSION':<16} {'PID':<8} {'ACTIVE UUID':<18}")
         print("-" * 124)
         eng_dups = dups_by_engine.get(eng, {})
         for p in prof_list:
@@ -36,6 +36,15 @@ def cmd_profiles(args):
             else:
                 email_display = email
 
+            plan_str = "-"
+            if is_logged == "YES":
+                if eng == "codex":
+                    plan_str = core.get_codex_account_info(p).get("plan_display") or "ChatGPT"
+                elif eng == "claude":
+                    plan_str = core.get_claude_account_info(p).get("plan_display") or "Claude Pro"
+                elif eng == "google":
+                    plan_str = "Google AI Pro"
+
             s_info = session_by_profile.get(p)
             matched_sess = tmux_ops.list_profile_sessions(p)
             tmux_active = s_info.get("session_name") if (s_info and s_info.get("session_name") in tmux_sessions) else (matched_sess[0] if matched_sess else "-")
@@ -44,7 +53,7 @@ def cmd_profiles(args):
             uuid_str = f"...{uuid_raw[-5:]}" if len(uuid_raw) >= 5 and uuid_raw != "-" else uuid_raw
 
             display_name = p.replace("account-", "agy-") if p.startswith("account-") else p
-            print(f"{display_name:<13} {is_logged:<11} {email_display:<42} {tmux_active:<16} {pid_str:<8} {uuid_str:<20}")
+            print(f"{display_name:<13} {is_logged:<11} {plan_str:<16} {email_display:<36} {tmux_active:<16} {pid_str:<8} {uuid_str:<18}")
 
     print_section("Profile Google Antigravity (agy-01..agy-XX)", core.list_google_profiles(), "google")
     print_section("Profile Anthropic Claude (claude-01..claude-XX)", core.list_claude_profiles(), "claude")
