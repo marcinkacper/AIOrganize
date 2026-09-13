@@ -33,7 +33,7 @@ except Exception:
 logger = logging.getLogger("agy-pool-router")
 
 DEFAULT_MODEL = "gemini-3.8-flash-low"
-MIN_QUOTA_THRESHOLD = 10.0  # Procent ponizej ktorego konto jest pomijane
+MIN_QUOTA_THRESHOLD = 50.0  # Konta ponizej 50% nie sa automatycznie przydzielane
 
 ALLOWED_MODELS = [
     "gemini-3.8-flash-low",
@@ -122,14 +122,28 @@ class AccountPoolRouter:
 
     def get_best_profile(self, family: str = "gemini") -> Tuple[str, Dict[str, Any]]:
         """
-        Zwraca profil z puli ogolnej (account-01..account-12) z NAJWIĘKSZĄ ilością dostępnych zasobów
-        (najwyższy efektywny procent limitu, najdłuższy czas do wyczerpania).
-        Sciśle wyklucza profil Klajner (zarezerwowany dla Pawła) oraz profile systemowe.
+        Zwraca profil z puli ogolnej (account-01..account-12) z NAJLEPSZYM dysponowaniem zasobami:
+        1. Konta z limitem >= 50% maja pierwszenstwo przed kontami ponizej 50%.
+        2. Najpierw wybierane sa konta z NAJMNIEJSZA liczba aktywnych sesji (0 sesji > 1 sesja > 2 sesje),
+           aby nie upychac wielu sesji na jednym koncie, dopoki sa inne wolne konta z tokenami.
+        3. Wsrod kont o tej samej liczbie sesji wybierane jest to z najwyzszym dostepnym limitem (%).
+        Scisle wyklucza profil Klajner (zarezerwowany dla Pawla) oraz profile systemowe.
         """
         quotas = get_cached_quotas()
         candidates = []
         now = time.time()
         pool_profs = list_pool_profiles()
+
+        try:
+            from .core import get_active_sessions
+        except Exception:
+            from core import get_active_sessions
+        active = get_active_sessions()
+        active_counts: Dict[str, int] = {}
+        for s in active:
+            prof = s.get("profile")
+            if prof:
+                active_counts[prof] = active_counts.get(prof, 0) + 1
 
         for p in pool_profs:
             if is_profile_reserved(p) or not is_profile_logged_in(p):
@@ -143,6 +157,7 @@ class AccountPoolRouter:
             c_pct = q.get("claude_effective_pct")
             c_stat = q.get("claude_status")
             five_h = q.get("gemini_5h_pct") or 0
+            active_cnt = active_counts.get(p, 0)
 
             # Ocena zasobow
             if family == "claude":
@@ -157,6 +172,7 @@ class AccountPoolRouter:
                 "primary": primary,
                 "secondary": secondary,
                 "five_h": five_h,
+                "active_count": active_cnt,
                 "quota": q
             })
 
@@ -170,14 +186,27 @@ class AccountPoolRouter:
                         "primary": q.get(f"{family}_effective_pct") or 0,
                         "secondary": 0,
                         "five_h": 0,
+                        "active_count": active_counts.get(p, 0),
                         "quota": q
                     })
 
         if not candidates:
             raise RuntimeError("Brak jakichkolwiek dostępnych kont w puli AGY (z wyłączeniem profilu Klajner)!")
 
-        # Sortuj: 1. Najwyzszy limit glowny, 2. Najwyzszy limit dodatkowy, 3. Okno 5h, 4. Nazwa
-        candidates.sort(key=lambda x: (x["primary"], x["secondary"], x["five_h"]), reverse=True)
+        # Sortuj:
+        # 1. Konta z limitem >= 50% (MIN_QUOTA_THRESHOLD) pierwsze
+        # 2. Najmniejsza liczba aktywnych sesji (0 najpierw, potem 1, potem 2...)
+        # 3. Najwyzszy limit glowny (primary)
+        # 4. Najwyzszy limit dodatkowy (secondary)
+        # 5. Okno 5h
+        candidates.sort(key=lambda x: (
+            1 if x["primary"] >= MIN_QUOTA_THRESHOLD else 0,
+            -x["active_count"],
+            x["primary"],
+            x["secondary"],
+            x["five_h"]
+        ), reverse=True)
+
         best = candidates[0]
         return best["profile"], best["quota"]
 
@@ -223,24 +252,41 @@ class AccountPoolRouter:
                 if candidates:
                     candidates.sort(key=lambda x: x[1], reverse=True)
                     best_p, best_pct = candidates[0]
-                    logger.critical(f"[POOL-ROUTER] Brak kont z limitem >{MIN_QUOTA_THRESHOLD}%. Wybieram najlepsze dostepne z puli ogolnej: {best_p} ({best_pct}%)")
+                    logger.critical(f"[POOL-ROUTER] Brak kont z limitem >={MIN_QUOTA_THRESHOLD}%. Wybieram najlepsze dostepne z puli ogolnej: {best_p} ({best_pct}%)")
                     return best_p, effective_model, best_pct
                 raise Exception("Brak jakichkolwiek zalogowanych kont w puli ogólnej /srv/projects/agy!")
 
-            # Logika krążenia (Round-Robin / Session Affinity)
-            # Jeśli sesja ma przypisane konto i to konto nadal jest sprawne -> utrzymaj je
+            # Logika krazania (Round-Robin / Session Affinity z limitem >= 50%)
+            # Jesli sesja ma przypisane konto i to konto ma >= 50% -> utrzymaj je
             if conversation_uuid and conversation_uuid in self._session_account_map:
                 prev_acc = self._session_account_map[conversation_uuid]
-                matching = [item for item in healthy if item[0] == prev_acc]
+                matching = [item for item in healthy if item[0] == prev_acc and item[1] >= MIN_QUOTA_THRESHOLD]
                 if matching:
                     return matching[0][0], effective_model, matching[0][1]
                 else:
-                    logger.info(f"[POOL-ROUTER] Poprzednie konto sesji {conversation_uuid} ({prev_acc}) ma limit <=10%. Przelaczam na nastepne wolne konto.")
+                    logger.info(f"[POOL-ROUTER] Poprzednie konto sesji {conversation_uuid} ({prev_acc}) ma limit <50%. Przelaczam na nastepne wolne konto.")
 
-            # Wybierz nastepne konto w rotacji Round-Robin
-            idx = self._round_robin_idx % len(healthy)
+            # Wybierz konto z najmniejsza liczba aktywnych sesji
+            try:
+                from .core import get_active_sessions
+            except Exception:
+                from core import get_active_sessions
+            active = get_active_sessions()
+            active_counts = {}
+            for s in active:
+                p_s = s.get("profile")
+                if p_s:
+                    active_counts[p_s] = active_counts.get(p_s, 0) + 1
+
+            # Posortuj zdrowe konta: najmniejsza liczba aktywnych sesji najpierw, w remisach najwyzszy limit
+            healthy.sort(key=lambda x: (active_counts.get(x[0], 0), -x[1]))
+            min_sessions = active_counts.get(healthy[0][0], 0)
+            least_loaded = [h for h in healthy if active_counts.get(h[0], 0) == min_sessions]
+
+            # Wybierz nastepne konto w rotacji Round-Robin sposrod najmniej obciazonych
+            idx = self._round_robin_idx % len(least_loaded)
             self._round_robin_idx += 1
-            selected_profile, pct = healthy[idx]
+            selected_profile, pct = least_loaded[idx]
 
             if conversation_uuid:
                 self._session_account_map[conversation_uuid] = selected_profile

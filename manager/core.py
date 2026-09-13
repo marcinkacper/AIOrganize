@@ -44,7 +44,7 @@ def get_profile_engine(profile: str) -> str:
         return "claude"
     if p == "codex" or p.startswith("codex-"):
         return "codex"
-    if p == "bash":
+    if p == "bash" or p.startswith("bash-"):
         return "bash"
     return "google"
 
@@ -71,7 +71,7 @@ def get_profile_home(profile: str) -> str:
     p = resolve_profile_name(profile)
     if not validate_profile_name(p):
         raise ValueError(f"Invalid profile name: {profile}")
-    if p in ["claude", "codex", "bash"] or p.startswith("claude-") or p.startswith("codex-"):
+    if p in ["claude", "codex", "bash"] or p.startswith("claude-") or p.startswith("codex-") or p.startswith("bash-"):
         return "/home/kacper"
     return os.path.join(PROFILES_DIR, p, "home")
 
@@ -82,7 +82,7 @@ def get_profile_token_path(profile: str) -> str:
 
 def is_profile_logged_in(profile: str) -> bool:
     p = resolve_profile_name(profile)
-    if p == "bash":
+    if p == "bash" or p.startswith("bash-"):
         return True
     if p == "claude":
         return os.path.isfile("/home/kacper/.claude.json") or os.path.isfile("/home/kacper/.claude/.credentials.json")
@@ -112,7 +112,7 @@ def is_profile_logged_in(profile: str) -> bool:
 
 def get_profile_email(profile: str) -> Optional[str]:
     p = resolve_profile_name(profile)
-    if p == "bash":
+    if p == "bash" or p.startswith("bash-"):
         return "kacper@ferrari"
     if p == "claude" or p.startswith("claude-"):
         cfg_dir = get_claude_config_dir(p) if p.startswith("claude-") else "/home/kacper"
@@ -370,6 +370,15 @@ def auto_expand_slots() -> Dict[str, Optional[str]]:
             os.makedirs(cdx, exist_ok=True)
             created["codex"] = next_x
 
+    # 4. Bash (bash-XX)
+    try:
+        b_sessions = get_bash_sessions()
+        if b_sessions and all(b.get("tmux_active") for b in b_sessions):
+            new_b = add_profile_slot("bash")
+            created["bash"] = new_b
+    except Exception:
+        pass
+
     return created
 
 def add_profile_slot(provider: str) -> str:
@@ -399,6 +408,19 @@ def add_profile_slot(provider: str) -> str:
         next_n = (max(nums) + 1) if nums else 1
         new_p = f"codex-{next_n:02d}"
         os.makedirs(os.path.join(PROFILES_DIR, new_p, "codex"), exist_ok=True)
+        return new_p
+    elif provider == "bash":
+        slots = get_bash_slot_names()
+        nums = []
+        for s in slots:
+            m = re.match(r"^bash-(\d+)$", s)
+            if m:
+                nums.append(int(m.group(1)))
+        next_n = (max(nums) + 1) if nums else 1
+        new_p = f"bash-{next_n:02d}"
+        if new_p not in slots:
+            slots.append(new_p)
+            save_bash_slot_names(slots)
         return new_p
     else:
         raise ValueError(f"Unknown provider: {provider}")
@@ -1685,6 +1707,100 @@ def sync_sessions_from_home(source_home: str = "/home/kacper") -> Dict[str, Any]
         "summaries_updated": sum_res.get("updated", 0)
     }
 
+BASH_SESSIONS_FILE = os.path.join(BASE_DIR, "bash_sessions.json")
+
+def get_bash_slot_names() -> List[str]:
+    slots = ["bash-01", "bash-02"]
+    if os.path.isfile(BASH_SESSIONS_FILE):
+        try:
+            with open(BASH_SESSIONS_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, list) and loaded:
+                    slots = loaded
+        except Exception:
+            pass
+    try:
+        proc = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True)
+        if proc.returncode == 0:
+            for l in proc.stdout.splitlines():
+                s = l.strip()
+                if s == "agy-bash":
+                    if "bash-01" not in slots:
+                        slots.append("bash-01")
+                elif s.startswith("agy-bash-"):
+                    b_id = s[4:]
+                    if b_id not in slots:
+                        slots.append(b_id)
+    except Exception:
+        pass
+
+    def sort_key(x):
+        m = re.match(r"^bash-(\d+)$", x)
+        return int(m.group(1)) if m else 999
+
+    return sorted(list(set(slots)), key=sort_key)
+
+def save_bash_slot_names(slots: List[str]):
+    try:
+        with open(BASH_SESSIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(slots, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to save bash slots: {e}")
+
+def get_bash_sessions() -> List[Dict[str, Any]]:
+    slots = get_bash_slot_names()
+    results = []
+
+    tmux_info: Dict[str, Dict[str, Any]] = {}
+    try:
+        proc = subprocess.run(
+            ["tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_pid} #{pane_current_path}"],
+            capture_output=True,
+            text=True
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                parts = line.strip().split(maxsplit=2)
+                if parts:
+                    s_name = parts[0]
+                    p_pid = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+                    p_cwd = parts[2] if len(parts) > 2 else None
+                    tmux_info[s_name] = {"pid": p_pid, "cwd": p_cwd}
+    except Exception:
+        pass
+
+    for s_id in slots:
+        s_name = f"agy-{s_id}"
+        is_active = False
+        candidates = ["agy-bash", "agy-bash-01", "bash"] if s_id in ("bash", "bash-01") else [f"agy-{s_id}", s_id]
+        for cand in candidates:
+            if cand in tmux_info:
+                s_name = cand
+                is_active = True
+                break
+
+        info = tmux_info.get(s_name, {})
+        pid = info.get("pid")
+        cwd = info.get("cwd")
+
+        name = "Główna Konsola Bash (bash-01)" if s_id in ("bash", "bash-01") else f"Konsola Bash ({s_id})"
+        results.append({
+            "id": s_id,
+            "name": name,
+            "binary": "bash",
+            "version": "5.2",
+            "provider": "GNU / Linux",
+            "auth_type": "Server Shell",
+            "email": "kacper@ferrari",
+            "logged_in": True,
+            "tmux_active": is_active,
+            "tmux_session": s_name,
+            "pid": pid,
+            "cwd": cwd or "/home/kacper",
+            "description": "Niezależna interaktywna sesja powłoki Bash serwera"
+        })
+    return results
+
 def get_engines_status() -> List[Dict[str, Any]]:
     """
     Returns status of secondary AI engines: Claude Code and OpenAI Codex.
@@ -1836,31 +1952,8 @@ def get_engines_status() -> List[Dict[str, Any]]:
         "description": "OpenAI Codex agentic coding CLI"
     })
 
-    # Bash Console (Server Shell)
-    bash_active = "agy-bash" in tmux_sessions
-    bash_pid = None
-    if bash_active:
-        try:
-            p_res = subprocess.run(["tmux", "list-panes", "-t", "agy-bash", "-F", "#{pane_pid}"], capture_output=True, text=True)
-            if p_res.returncode == 0 and p_res.stdout.strip():
-                bash_pid = int(p_res.stdout.strip().splitlines()[0])
-        except Exception:
-            pass
-
-    engines.append({
-        "id": "bash",
-        "name": "Bash Shell",
-        "binary": "bash",
-        "version": "5.2",
-        "provider": "GNU / Linux",
-        "auth_type": "Server Shell",
-        "email": "kacper@ferrari",
-        "logged_in": True,
-        "tmux_active": bash_active,
-        "tmux_session": "agy-bash",
-        "pid": bash_pid,
-        "description": "Interactive server terminal for admin, agy login & custom commands"
-    })
+    # Bash Consoles (Server Shells)
+    engines.extend(get_bash_sessions())
 
     return engines
 

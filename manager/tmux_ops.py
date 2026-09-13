@@ -37,7 +37,17 @@ except Exception:
 
 def get_tmux_session_name(profile: str, conversation_uuid: Optional[str] = None) -> str:
     p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
-    if p in ("bash", "claude", "codex") or p.startswith("claude-") or p.startswith("codex-"):
+    if p in ("bash", "bash-01"):
+        if has_tmux_session("bash"):
+            return "bash"
+        if has_tmux_session("agy-bash"):
+            return "agy-bash"
+        if has_tmux_session("agy-bash-01"):
+            return "agy-bash-01"
+        return "agy-bash"
+    if p.startswith("bash-"):
+        return f"agy-{p}"
+    if p in ("claude", "codex") or p.startswith("claude-") or p.startswith("codex-"):
         if conversation_uuid and validate_uuid(conversation_uuid):
             return f"agy-{p}-{conversation_uuid[:8]}"
         return f"agy-{p}"
@@ -48,10 +58,17 @@ def get_tmux_session_name(profile: str, conversation_uuid: Optional[str] = None)
 def list_profile_sessions(profile: str) -> List[str]:
     """
     Returns all tmux sessions belonging to a specific profile,
-    e.g. agy-account-02, agy-claude-01, etc.
+    e.g. agy-account-02, agy-claude-01, agy-bash-02, etc.
     """
     p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
     all_sess = list_agy_tmux_sessions()
+    if p in ("bash", "bash-01"):
+        res = []
+        for s in all_sess:
+            if s in ("bash", "agy-bash", "agy-bash-01"):
+                res.append(s)
+        if res:
+            return res
     prefix = f"agy-{p}"
     matched = []
     for s in all_sess:
@@ -61,7 +78,13 @@ def list_profile_sessions(profile: str) -> List[str]:
 
 def find_available_session_name(profile: str, conversation_uuid: Optional[str] = None) -> str:
     p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
-    if p in ("bash", "claude", "codex") or p.startswith("claude-") or p.startswith("codex-"):
+    if p in ("bash", "bash-01"):
+        if has_tmux_session("bash"):
+            return "bash"
+        return "agy-bash"
+    if p.startswith("bash-"):
+        return f"agy-{p}"
+    if p in ("claude", "codex") or p.startswith("claude-") or p.startswith("codex-"):
         if conversation_uuid and validate_uuid(conversation_uuid):
             return f"agy-{p}-{conversation_uuid[:8]}"
         return f"agy-{p}"
@@ -150,7 +173,7 @@ def start_profile_session(
         session_name = find_available_session_name(profile)
 
     p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
-    if p == "bash":
+    if p == "bash" or p.startswith("bash-"):
         run_cmd = ["bash", "-l"]
     elif p == "claude" or p.startswith("claude-"):
         cfg_dir = f"/srv/agy-manager/profiles/{p}/config" if p.startswith("claude-") else "/home/kacper/.claude"

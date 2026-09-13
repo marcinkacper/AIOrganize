@@ -348,9 +348,15 @@
   </div>
 
   <!-- Narzędzia i Powłoka Serwera -->
-  <div class="section-title" style="margin-top: 20px;">
-    <span>💻 Powłoka Serwera i Narzędzia</span>
-    <span style="font-size: 12px; color: var(--text-muted);">Główny terminal serwera (Bash Console)</span>
+  <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+    <div>
+      <span style="font-weight: 600; font-size: 16px;">💻 Powłoka Serwera i Narzędzia (Bash Console)</span>
+      <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Niezależne, równoległe sesje terminala systemowego Linux</span>
+      <span class="badge-pill badge-blue" id="badge-bash-count" style="margin-left: 8px;">-</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="btn btn-sm btn-primary" onclick="addBashSession()" title="Utwórz nową niezależną sesję powłoki Bash">+ Nowa sesja Bash</button>
+    </div>
   </div>
   <div class="profiles-grid" id="engines-container" style="margin-bottom: 25px;">
     <div style="color: var(--text-muted); padding: 20px;">Wczytywanie konsoli serwera...</div>
@@ -515,7 +521,7 @@
       <div style="margin-bottom: 16px;">
         <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Profil docelowy (Sortowanie wg najwyższego dostępnego limitu)</label>
         <select id="switch-target" style="width: 100%; padding: 8px; background: #21262d; color: #fff; border: 1px solid var(--card-border); border-radius: 4px; font-size: 13px;"></select>
-        <div style="font-size: 11px; color: #3fb950; margin-top: 5px;">⭐ Najlepsze konto z najwyższym dostępnym limitem znajduje się na górze listy i jest domyślnie wybrane.</div>
+        <div style="font-size: 11px; color: #3fb950; margin-top: 5px;">⭐ Najlepsze konto (najwyższy limit ≥50% oraz 0 aktywnych sesji) znajduje się na górze listy i jest domyślnie wybrane.</div>
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
         <button class="btn btn-sm" onclick="closeModal('switch-modal')">Anuluj</button>
@@ -782,50 +788,63 @@
       if (!container) return;
       container.innerHTML = '';
 
-      const bashEng = engines.find(e => e.id === 'bash') || {
-        id: 'bash',
-        name: 'Główna Konsola Bash',
-        email: 'kacper@ferrari',
-        tmux_active: false,
-        tmux_session: 'agy-bash',
-        description: 'Powłoka systemowa serwera do zarządzania i logowania'
-      };
-
-      const card = document.createElement('div');
-      card.className = 'profile-card';
-
-      let statusBadge = bashEng.tmux_active
-        ? `<span class="badge-pill badge-green">AKTYWNY (PID ${bashEng.pid || '-'})</span>`
-        : `<span class="badge-pill badge-yellow">BEZCZYNNY</span>`;
-
-      let buttons = `
-        <button class="btn btn-sm btn-console" onclick="openTerminalWindow('bash')" title="Otwórz konsolę w osobnym oknie">⧉ Konsola Bash</button>
-        <button class="btn btn-sm" onclick="openTerminal('bash')" title="Otwórz w oknie modalnym">⌨ Modal</button>
-      `;
-      if (bashEng.tmux_active) {
-        buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('bash')">Zatrzymaj</button>`;
-      } else {
-        buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('bash')">Uruchom</button>`;
+      let bashSessions = engines.filter(e => e.id === 'bash' || (e.id || '').startsWith('bash-'));
+      if (bashSessions.length === 0) {
+        bashSessions = [{
+          id: 'bash-01',
+          name: 'Główna Konsola Bash (bash-01)',
+          email: 'kacper@ferrari',
+          tmux_active: false,
+          tmux_session: 'agy-bash',
+          description: 'Powłoka systemowa serwera do zarządzania i logowania'
+        }];
       }
 
-      card.innerHTML = `
-        <div class="profile-card-header">
-          <span class="profile-name" style="font-size: 15px;">💻 ${bashEng.name}</span>
-          ${statusBadge}
-        </div>
-        <div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px;">
-          Powłoka systemowa Linux · ${bashEng.email || 'kacper@ferrari'}
-        </div>
-        <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
-          <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Terminal administracyjny serwera</div>
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Dostęp do narzędzi agy-manager, procesów w tle, repozytoriów git i skryptów wdrożeniowych.</div>
-          <div style="font-size: 11px; color: #3fb950; margin-top: 4px;">tmux: ${bashEng.tmux_session || 'agy-bash'}</div>
-        </div>
-        <div class="profile-card-actions" style="margin-top: 12px;">
-          ${buttons}
-        </div>
-      `;
-      container.appendChild(card);
+      const badge = document.getElementById('badge-bash-count');
+      if (badge) {
+        const activeCount = bashSessions.filter(b => b.tmux_active).length;
+        badge.innerText = `${activeCount}/${bashSessions.length} aktywne`;
+      }
+
+      bashSessions.forEach(b => {
+        const card = document.createElement('div');
+        card.className = 'profile-card';
+
+        let statusBadge = b.tmux_active
+          ? `<span class="badge-pill badge-green">AKTYWNY (PID ${b.pid || '-'})</span>`
+          : `<span class="badge-pill badge-yellow">BEZCZYNNY</span>`;
+
+        let buttons = `
+          <button class="btn btn-sm btn-console" onclick="openTerminalWindow('${b.id}', '${b.tmux_session}')" title="Otwórz konsolę w osobnym oknie">⧉ Okno</button>
+          <button class="btn btn-sm" onclick="openTerminal('${b.id}', '${b.tmux_session}')" title="Otwórz w oknie modalnym">⌨ Modal</button>
+        `;
+        if (b.tmux_active) {
+          buttons += `<button class="btn btn-sm btn-danger" onclick="stopTarget('${b.tmux_session || b.id}')">Zatrzymaj</button>`;
+        } else {
+          buttons += `<button class="btn btn-sm btn-primary" onclick="startProfile('${b.id}')">Uruchom</button>`;
+        }
+
+        const cwdDisplay = b.cwd ? `<div style="font-size: 11px; color: #79c0ff; margin-top: 3px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${b.cwd}">📁 ${b.cwd}</div>` : '';
+
+        card.innerHTML = `
+          <div class="profile-card-header">
+            <span class="profile-name" style="font-size: 15px;">💻 ${b.name}</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size: 11px; color: #58a6ff; font-family: var(--font-mono); margin-top: 3px;">
+            Powłoka systemowa Linux · ${b.email || 'kacper@ferrari'}
+          </div>
+          <div class="quota-box" style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+            <div style="font-size: 12px; color: var(--text-main); font-weight: 500;">Sesja powłoki Bash</div>
+            ${cwdDisplay}
+            <div style="font-size: 11px; color: #3fb950; margin-top: 4px; font-family: var(--font-mono);">tmux: ${b.tmux_session || 'agy-' + b.id}</div>
+          </div>
+          <div class="profile-card-actions" style="margin-top: 12px;">
+            ${buttons}
+          </div>
+        `;
+        container.appendChild(card);
+      });
     }
 
     async function triggerFleetSync() {
@@ -2070,9 +2089,12 @@
       const select = document.getElementById('switch-target');
       select.innerHTML = '';
 
-      // Sort profiles by highest available usable percentage descending
+      // Sort profiles:
+      // 1. Quota >= 50% vs < 50% (healthy accounts first)
+      // 2. Active session count ascending (0 sessions first)
+      // 3. Highest available quota percentage descending
       const sorted = profilesData
-        .filter(p => p.logged_in && !p.is_reserved && (p.name || '').toLowerCase() !== 'klajner' && (p.name || '').toLowerCase() !== 'bash' && (p.name || '').toLowerCase() !== 'workspace' && (p.name || '').toLowerCase() !== 'any')
+        .filter(p => p.logged_in && !p.is_reserved && (p.name || '').toLowerCase() !== 'klajner' && (p.name || '').toLowerCase() !== 'bash' && !p.name.startsWith('bash-') && (p.name || '').toLowerCase() !== 'workspace' && (p.name || '').toLowerCase() !== 'any')
         .slice()
         .sort((a, b) => {
           const qA = a.quota || {};
@@ -2080,12 +2102,20 @@
           const pctA = (qA.gemini_effective_pct !== null && qA.gemini_effective_pct !== undefined) ? qA.gemini_effective_pct : -1;
           const pctB = (qB.gemini_effective_pct !== null && qB.gemini_effective_pct !== undefined) ? qB.gemini_effective_pct : -1;
           
+          const aHealthy = pctA >= 50 ? 1 : 0;
+          const bHealthy = pctB >= 50 ? 1 : 0;
+          if (bHealthy !== aHealthy) {
+            return bHealthy - aHealthy; // Healthy >= 50% first
+          }
+
+          const countA = (a.sessions || []).length;
+          const countB = (b.sessions || []).length;
+          if (countA !== countB) {
+            return countA - countB; // 0 sessions first, then 1, etc.
+          }
+
           if (pctB !== pctA) {
             return pctB - pctA; // Highest percentage first
-          }
-          // If equal percentage, prioritize idle profiles over active
-          if (a.tmux_active !== b.tmux_active) {
-            return a.tmux_active ? 1 : -1;
           }
           return a.name.localeCompare(b.name);
         });
@@ -2098,22 +2128,25 @@
         const eff = (q.gemini_effective_pct !== null && q.gemini_effective_pct !== undefined) ? `${q.gemini_effective_pct}%` : '-';
         
         let quotaLabel = '';
-        if (q.gemini_effective_pct > 0) {
+        if (q.gemini_effective_pct >= 50) {
           quotaLabel = `🟢 ${eff} Dostępne`;
+        } else if (q.gemini_effective_pct > 0) {
+          quotaLabel = `🟡 ${eff} (Niski limit <50%)`;
         } else if (q.gemini_status === 'Weekly Limit Reached') {
-          quotaLabel = `🔴 0% Limit tygodniowy (~${q.gemini_wait_human})`;
+          quotaLabel = `🔴 0% Limit tygodniowy (~${q.gemini_wait_human || 'brak'})`;
         } else if (q.gemini_status === '5h Limit Reached') {
-          quotaLabel = `🟡 0% Cooldown (${q.gemini_wait_human})`;
+          quotaLabel = `🟡 0% Cooldown (${q.gemini_wait_human || 'brak'})`;
         } else {
           quotaLabel = `⚪ ${eff}`;
         }
 
         const emailShort = p.email ? ` [${p.email}]` : '';
-        const sessionState = p.tmux_active ? 'Aktywne' : 'Bezczynne';
-        const bestBadge = idx === 0 && q.gemini_effective_pct > 0 ? ' ⭐ (Zalecane)' : '';
+        const sessCount = (p.sessions || []).length;
+        const sessLabel = sessCount === 0 ? 'Wolne (0 sesji)' : `${sessCount} sesj${sessCount === 1 ? 'a' : 'e'}`;
+        const bestBadge = idx === 0 && (q.gemini_effective_pct >= 50) ? ' ⭐ (Zalecane)' : '';
         const dupNote = p.is_duplicate ? ` ⚠️[Współdzielone z ${p.duplicate_with.join(', ')}]` : '';
 
-        opt.innerText = `${p.name} — ${quotaLabel} (${sessionState})${emailShort}${dupNote}${bestBadge}`;
+        opt.innerText = `${p.name} — ${quotaLabel} | ${sessLabel}${emailShort}${dupNote}${bestBadge}`;
         select.appendChild(opt);
       });
 
@@ -2140,6 +2173,21 @@
         showToast(`Przełączono rozmowę na ${target}!`);
       } catch (err) {
         alert('Błąd: ' + err.message);
+      }
+    }
+
+    async function addBashSession() {
+      try {
+        const res = await fetch('/api/bash/new', { method: 'POST' });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Nie udało się utworzyć sesji Bash');
+        }
+        const data = await res.json();
+        showToast(data.message || 'Utworzono nową sesję Bash');
+        fetchData();
+      } catch (err) {
+        alert('Błąd tworzenia sesji Bash: ' + err.message);
       }
     }
 

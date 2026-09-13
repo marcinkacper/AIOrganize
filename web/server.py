@@ -251,6 +251,21 @@ def add_slot_api(req: Dict[str, Any]):
     new_slot = core.add_profile_slot(provider)
     return {"status": "ok", "provider": provider, "new_slot": new_slot}
 
+@app.post("/api/bash/new")
+def new_bash_session_api():
+    b_sessions = core.get_bash_sessions()
+    idle_slot = None
+    for b in b_sessions:
+        if not b.get("tmux_active"):
+            idle_slot = b.get("id")
+            break
+    if not idle_slot:
+        idle_slot = core.add_profile_slot("bash")
+
+    sess_name = tmux_ops.get_tmux_session_name(idle_slot)
+    tmux_ops.start_profile_session(idle_slot)
+    return {"status": "ok", "slot": idle_slot, "session_name": sess_name}
+
 @app.post("/api/quota/refresh")
 async def refresh_quotas_endpoint():
     res = await asyncio.to_thread(quota.refresh_all_quotas)
@@ -388,8 +403,10 @@ def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None, sessio
         cwd = None
         target_session = session
         if not target_session:
-            if actual_profile == "bash":
-                target_session = "agy-bash"
+            if actual_profile in ("bash", "bash-01"):
+                target_session = tmux_ops.get_tmux_session_name("bash-01")
+            elif actual_profile.startswith("bash-"):
+                target_session = f"agy-{actual_profile}"
             elif uuid:
                 target_session = f"agy-{actual_profile}-{uuid[:8]}"
             else:
@@ -408,7 +425,7 @@ def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None, sessio
             except Exception:
                 pass
 
-        if actual_profile in ["claude", "codex", "bash"] or actual_profile.startswith("claude-") or actual_profile.startswith("codex-"):
+        if actual_profile in ["claude", "codex", "bash"] or actual_profile.startswith("claude-") or actual_profile.startswith("codex-") or actual_profile.startswith("bash-"):
             email = core.get_profile_email(actual_profile)
             engine_family = core.get_profile_engine(actual_profile)
             q = quota.fetch_profile_quota(actual_profile) if (actual_profile.startswith("claude-") or actual_profile.startswith("codex-")) else {}
@@ -593,7 +610,7 @@ async def websocket_terminal(
         stripped = target[4:]
         if stripped in ("bash", "claude", "codex"):
             profile = stripped
-        elif stripped.startswith("claude-") or stripped.startswith("codex-"):
+        elif stripped.startswith("claude-") or stripped.startswith("codex-") or stripped.startswith("bash-"):
             parts = stripped.split("-")
             profile = f"{parts[0]}-{parts[1]}"
         elif stripped.startswith("account-"):
@@ -649,7 +666,7 @@ async def websocket_terminal(
     env["PATH"] = f"/home/kacper/.local/bin:{env.get('PATH', '')}"
 
     # Spawn tmux new-session -A to attach if running, or launch if not
-    if profile == "bash":
+    if profile == "bash" or profile.startswith("bash-"):
         home_dir = "/home/kacper"
         run_cmd = ["bash", "-l"]
     elif profile == "claude" or profile.startswith("claude-"):
