@@ -36,8 +36,23 @@ def parse_relative_time(iso_str: Optional[str]) -> str:
     except Exception:
         return iso_str[:16]
 
-def fetch_claude_quota(profile: str) -> Dict[str, Any]:
+_CLAUDE_QUOTA_CACHE: Dict[str, Dict[str, Any]] = {}
+_CLAUDE_RATE_LIMITED_UNTIL: float = 0.0
+
+def fetch_claude_quota(profile: str, force: bool = False) -> Dict[str, Any]:
+    global _CLAUDE_RATE_LIMITED_UNTIL
     p = profile.replace("agy-", "account-") if profile.startswith("agy-") else profile
+
+    # Check in-memory cache (TTL 20 seconds)
+    cached = _CLAUDE_QUOTA_CACHE.get(p)
+    now_epoch = time.time()
+    if not force and cached and (now_epoch - cached.get("cached_at_epoch", 0)) < 20.0:
+        return cached["quota"]
+
+    if not force and now_epoch < _CLAUDE_RATE_LIMITED_UNTIL:
+        if cached:
+            return cached["quota"]
+
     cfg_dir = f"/srv/agy-manager/profiles/{p}/config" if p.startswith("claude-") else "/home/kacper"
     c_path = os.path.join(cfg_dir, ".claude.json")
     if not os.path.isfile(c_path) and p == "claude":
@@ -101,28 +116,49 @@ def fetch_claude_quota(profile: str) -> Dict[str, Any]:
                         except Exception:
                             pass
                     break
+        except urllib.error.HTTPError as he:
+            if he.code == 429:
+                ra = 30
+                try:
+                    ra_hdr = he.headers.get("Retry-After")
+                    if ra_hdr and ra_hdr.isdigit():
+                        ra = int(ra_hdr) + 2
+                except Exception:
+                    pass
+                _CLAUDE_RATE_LIMITED_UNTIL = time.time() + ra
+                if cached:
+                    return cached["quota"]
         except Exception:
             pass
 
-    # 2. Fallback to cached .claude.json if live fetch failed
-    if not live_fetched and os.path.isfile(c_path):
-        try:
-            with open(c_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            util = data.get("cachedUsageUtilization", {}).get("utilization", {})
-            fh = util.get("five_hour", {})
-            fh_used = fh.get("utilization", 0) if fh else 0
-            fh_avail = max(0.0, round(100.0 - (fh_used or 0), 1))
-            fh_res = fh.get("resets_at") if fh else None
-            fh_human = parse_relative_time(fh_res)
+    # If live_fetched failed and we have a recent cached quota, use it!
+    if not live_fetched and cached:
+        return cached["quota"]
 
-            sd = util.get("seven_day", {})
-            sd_used = sd.get("utilization", 0) if sd else 0
-            sd_avail = max(0.0, round(100.0 - (sd_used or 0), 1))
-            sd_res = sd.get("resets_at") if sd else None
-            sd_human = parse_relative_time(sd_res)
-        except Exception:
-            pass
+    # 2. Fallback to cached .claude.json if live fetch failed and no in-memory cache
+    if not live_fetched:
+        candidate_paths = ["/home/kacper/.claude.json", c_path]
+        for cp_file in candidate_paths:
+            if os.path.isfile(cp_file):
+                try:
+                    with open(cp_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    util = data.get("cachedUsageUtilization", {}).get("utilization", {})
+                    if util:
+                        fh = util.get("five_hour", {})
+                        fh_used = fh.get("utilization", 0) if fh else 0
+                        fh_avail = max(0.0, round(100.0 - (fh_used or 0), 1))
+                        fh_res = fh.get("resets_at") if fh else None
+                        fh_human = parse_relative_time(fh_res)
+
+                        sd = util.get("seven_day", {})
+                        sd_used = sd.get("utilization", 0) if sd else 0
+                        sd_avail = max(0.0, round(100.0 - (sd_used or 0), 1))
+                        sd_res = sd.get("resets_at") if sd else None
+                        sd_human = parse_relative_time(sd_res)
+                        break
+                except Exception:
+                    pass
 
     res = {
         "profile": profile,
@@ -137,16 +173,22 @@ def fetch_claude_quota(profile: str) -> Dict[str, Any]:
         "gemini_weekly_pct": None,
         "gemini_weekly_reset": None,
         "gemini_weekly_human": "-",
-        "claude_effective_pct": min(fh_avail, sd_avail),
-        "claude_status": "Available" if min(fh_avail, sd_avail) > 0 else "Limit Reached",
+        "claude_effective_pct": fh_avail,
+        "claude_status": "Available" if (fh_avail > 0 and sd_avail > 0) else "Limit Reached",
         "claude_wait_human": fh_human if fh_avail == 0 else (sd_human if sd_avail == 0 else "ready"),
         "claude_5h_pct": fh_avail,
         "claude_5h_disabled": False,
+        "claude_5h_reset": fh_res,
+        "claude_5h_human": fh_human,
         "claude_weekly_pct": sd_avail,
         "claude_weekly_reset": sd_res,
         "claude_weekly_human": sd_human,
         "error": None,
         "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    _CLAUDE_QUOTA_CACHE[p] = {
+        "cached_at_epoch": time.time(),
+        "quota": res
     }
     try:
         save_quota_to_db(res)

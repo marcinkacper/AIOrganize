@@ -370,8 +370,33 @@
           document.title = `[${folderName}] ${session} - Antigravity Console`;
         }
 
-        if (profile === "bash") {
-          document.getElementById("title-profile").innerText = "Bash Shell";
+        if (d.active_family === "claude" && d.claude) {
+          const c = d.claude;
+          const fh = c["5h_pct"] !== null && c["5h_pct"] !== undefined ? c["5h_pct"] : (d.active_effective_pct || 100);
+          const wk = c.weekly_pct !== null && c.weekly_pct !== undefined ? c.weekly_pct : (d.active_effective_pct || 100);
+
+          document.getElementById("title-profile").innerText = `🟣 ${d.profile || profile}`;
+          if (d.email) {
+            const detail = shortUuid ? `${d.email} · ${shortUuid}` : d.email;
+            document.getElementById("title-email").innerText = detail;
+          }
+
+          const qEl = document.getElementById("title-quota");
+          qEl.innerText = `⚡ 5h: ${fh}% · 7d: ${wk}%`;
+          const minPct = Math.min(fh, wk);
+          if (minPct <= 20) {
+            qEl.className = "header-quota-badge red";
+          } else if (minPct <= 50) {
+            qEl.className = "header-quota-badge yellow";
+          } else {
+            qEl.className = "header-quota-badge";
+          }
+          qEl.title = `Claude Code (${d.profile || profile}) · Limit 5h: ${fh}% (odnowienie: ${c["5h_human"] || "-"}) · Tygodniowy: ${wk}% (odnowienie: ${c.weekly_human || "-"})`;
+          return;
+        }
+
+        if (d.active_family === "bash") {
+          document.getElementById("title-profile").innerText = d.profile && d.profile !== "bash" ? `💻 ${d.profile}` : "Bash Shell";
           document.getElementById("title-email").innerText = "kacper@ferrari";
           const qEl = document.getElementById("title-quota");
           qEl.innerText = "💻 Server";
@@ -407,7 +432,7 @@
     }
 
     updateTerminalQuota();
-    setInterval(updateTerminalQuota, 3500);
+    setInterval(updateTerminalQuota, 10000);
     window.addEventListener("focus", () => {
       updateTerminalQuota();
       if (term) term.focus();

@@ -543,29 +543,88 @@ def get_terminal_quota_endpoint(profile: str, uuid: Optional[str] = None, sessio
             except Exception:
                 pass
 
-        if actual_profile in ["claude", "codex", "bash"] or actual_profile.startswith("claude-") or actual_profile.startswith("codex-") or actual_profile.startswith("bash-"):
-            email = core.get_profile_email(actual_profile)
+        # Dynamically check if the target_session or uuid has an active session running Claude/Codex
+        active_sess_info = None
+        for s in core.get_active_sessions():
+            s_sess = s.get("session_name")
+            s_u = s.get("conversation_uuid")
+            if (target_session and s_sess == target_session) or (uuid and s_u == uuid):
+                active_sess_info = s
+                break
+
+        if active_sess_info and active_sess_info.get("engine") == "claude":
+            actual_profile = active_sess_info.get("profile") or "claude-01"
+            engine_family = "claude"
+        elif actual_profile in ("claude", "claude-01", "claude-02") or actual_profile.startswith("claude-") or (target_session and "claude" in target_session):
+            actual_profile = "claude-01" if actual_profile == "claude" else actual_profile
+            engine_family = "claude"
+        elif active_sess_info and active_sess_info.get("engine") == "codex":
+            actual_profile = active_sess_info.get("profile") or "codex-01"
+            engine_family = "codex"
+        elif actual_profile in ("codex", "codex-01", "codex-02") or actual_profile.startswith("codex-") or (target_session and "codex" in target_session):
+            actual_profile = "codex-01" if actual_profile == "codex" else actual_profile
+            engine_family = "codex"
+        elif actual_profile.startswith("bash-") or actual_profile == "bash":
+            engine_family = "bash"
+        else:
             engine_family = core.get_profile_engine(actual_profile)
-            q = quota.fetch_profile_quota(actual_profile) if (actual_profile.startswith("claude-") or actual_profile.startswith("codex-")) else {}
-            eff_pct = q.get("claude_effective_pct", 100) if engine_family == "claude" else 100
-            model_name = "Claude Code" if engine_family == "claude" else ("Codex" if engine_family == "codex" else "Bash Console")
+
+        if engine_family == "claude":
+            email = core.get_profile_email(actual_profile)
+            q = quota.fetch_claude_quota(actual_profile)
+            fh_pct = q.get("claude_5h_pct", 100)
+            wk_pct = q.get("claude_weekly_pct", 100)
             return {
                 "status": "ok",
                 "profile": actual_profile,
                 "session": target_session,
                 "cwd": cwd,
                 "email": email,
-                "active_model": model_name,
-                "active_family": engine_family,
-                "active_effective_pct": eff_pct,
+                "active_model": "Claude Code",
+                "active_family": "claude",
+                "active_effective_pct": fh_pct,
                 "gemini": None,
                 "claude": {
-                    "effective_pct": q.get("claude_effective_pct", 100),
+                    "effective_pct": fh_pct,
                     "status": q.get("claude_status") or "Available",
-                    "5h_pct": q.get("claude_5h_pct"),
-                    "weekly_pct": q.get("claude_weekly_pct"),
+                    "5h_pct": fh_pct,
+                    "5h_reset": q.get("claude_5h_reset"),
+                    "5h_human": q.get("claude_5h_human") or "-",
+                    "weekly_pct": wk_pct,
+                    "weekly_reset": q.get("claude_weekly_reset"),
+                    "weekly_human": q.get("claude_weekly_human") or "-",
                     "wait_human": q.get("claude_wait_human") or "ready"
-                } if engine_family == "claude" else None
+                }
+            }
+
+        elif engine_family == "codex":
+            email = core.get_profile_email(actual_profile)
+            q = quota.fetch_codex_quota(actual_profile)
+            return {
+                "status": "ok",
+                "profile": actual_profile,
+                "session": target_session,
+                "cwd": cwd,
+                "email": email,
+                "active_model": "Codex CLI",
+                "active_family": "codex",
+                "active_effective_pct": 100,
+                "gemini": None,
+                "claude": None
+            }
+
+        elif engine_family == "bash":
+            return {
+                "status": "ok",
+                "profile": actual_profile,
+                "session": target_session,
+                "cwd": cwd,
+                "email": "kacper@ferrari",
+                "active_model": "Bash Console",
+                "active_family": "bash",
+                "active_effective_pct": 100,
+                "gemini": None,
+                "claude": None
             }
 
         active_model = core.get_profile_active_model(actual_profile)

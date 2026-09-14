@@ -493,6 +493,7 @@
           <span style="width: 10px; height: 10px; border-radius: 50%; background: #3fb950;"></span>
           <strong id="term-modal-title" style="font-family: var(--font-mono); font-size: 14px;">Terminal Web</strong>
           <span id="term-modal-cwd" class="badge" style="display: none; font-family: var(--font-mono); font-size: 11px; background: rgba(56, 139, 253, 0.15); color: #79c0ff; border: 1px solid rgba(56, 139, 253, 0.35); border-radius: 4px; padding: 2px 8px; cursor: pointer;" title="Bieżący katalog sesji (kliknij aby skopiować)" onclick="copyModalCwd()">📁 ~</span>
+          <span id="term-modal-quota" class="badge" style="display: none; font-family: var(--font-mono); font-size: 11px; padding: 2px 8px; font-weight: 700; border-radius: 4px;">⚡ --%</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 11px; color: var(--text-muted); margin-right: 6px;">Shift+zaznacz = kopiuj · Shift+Prawy lub Ctrl+V = wklej</span>
@@ -1708,18 +1709,51 @@
       const sessLabel = sessionName || (uuid ? `agy-${profile}-${uuid.substring(0,8)}` : `agy-${profile}`);
       document.getElementById('term-modal-title').innerText = `Konsola: ${profile} (${sessLabel})`;
       const modalCwdEl = document.getElementById('term-modal-cwd');
-      if (modalCwdEl) modalCwdEl.style.display = 'none';
+      const modalQuotaEl = document.getElementById('term-modal-quota');
+      if (modalQuotaEl) modalQuotaEl.style.display = 'none';
 
-      fetch(`/api/terminal/quota/${profile}?uuid=${encodeURIComponent(uuid || '')}&session=${encodeURIComponent(sessLabel)}`)
-        .then(r => r.json())
-        .then(d => {
-          if (d.cwd && modalCwdEl) {
-            modalCurrentCwd = d.cwd;
-            modalCwdEl.innerText = `📁 ${d.cwd}`;
-            modalCwdEl.title = `Bieżący katalog sesji: ${d.cwd} (kliknij aby skopiować)`;
-            modalCwdEl.style.display = 'inline-flex';
-          }
-        }).catch(() => {});
+      function updateModalQuota() {
+        if (document.getElementById('terminal-modal').style.display === 'none') return;
+        fetch(`/api/terminal/quota/${profile}?uuid=${encodeURIComponent(uuid || '')}&session=${encodeURIComponent(sessLabel)}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d.cwd && modalCwdEl) {
+              modalCurrentCwd = d.cwd;
+              modalCwdEl.innerText = `📁 ${d.cwd}`;
+              modalCwdEl.title = `Bieżący katalog sesji: ${d.cwd} (kliknij aby skopiować)`;
+              modalCwdEl.style.display = 'inline-flex';
+            }
+            if (modalQuotaEl) {
+              modalQuotaEl.style.display = 'inline-flex';
+              if (d.active_family === 'claude' && d.claude) {
+                const c = d.claude;
+                const fh = c['5h_pct'] !== null && c['5h_pct'] !== undefined ? c['5h_pct'] : d.active_effective_pct;
+                const wk = c.weekly_pct !== null && c.weekly_pct !== undefined ? c.weekly_pct : d.active_effective_pct;
+                modalQuotaEl.innerText = `⚡ 5h: ${fh}% · 7d: ${wk}%`;
+                modalQuotaEl.style.background = 'rgba(163, 113, 247, 0.2)';
+                modalQuotaEl.style.color = '#d2a8ff';
+                modalQuotaEl.style.borderColor = 'rgba(163, 113, 247, 0.4)';
+                modalQuotaEl.title = `Claude Code (${d.profile}) · Limit 5h: ${fh}% (${c['5h_human'] || '-'}) · Tygodniowy: ${wk}% (${c.weekly_human || '-'})`;
+                document.getElementById('term-modal-title').innerText = `🟣 ${d.profile} (${sessLabel})`;
+              } else if (d.active_family === 'bash') {
+                modalQuotaEl.innerText = `💻 Server`;
+                modalQuotaEl.style.background = 'rgba(110, 118, 129, 0.2)';
+                modalQuotaEl.style.color = '#8b949e';
+                modalQuotaEl.style.borderColor = 'rgba(110, 118, 129, 0.4)';
+              } else if (d.active_effective_pct !== null && d.active_effective_pct !== undefined) {
+                modalQuotaEl.innerText = `⚡ ${d.active_effective_pct}%`;
+                modalQuotaEl.style.background = 'rgba(63, 185, 80, 0.2)';
+                modalQuotaEl.style.color = '#3fb950';
+                modalQuotaEl.style.borderColor = 'rgba(63, 185, 80, 0.4)';
+                modalQuotaEl.title = `Limit konta ${d.profile}: ${d.active_effective_pct}%`;
+              }
+            }
+          }).catch(() => {});
+      }
+
+      updateModalQuota();
+      if (window.modalQuotaTimer) clearInterval(window.modalQuotaTimer);
+      window.modalQuotaTimer = setInterval(updateModalQuota, 10000);
 
       document.getElementById('terminal-modal').style.display = 'flex';
 
@@ -2027,6 +2061,10 @@
     }
 
     function closeTerminal() {
+      if (window.modalQuotaTimer) {
+        clearInterval(window.modalQuotaTimer);
+        window.modalQuotaTimer = null;
+      }
       if (window.modalResizeObserver) {
         window.modalResizeObserver.disconnect();
         window.modalResizeObserver = null;
