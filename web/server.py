@@ -1047,6 +1047,8 @@ class ChatMessage(BaseModel):
     role: str
     content: Optional[str] = ""
     name: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 class ChatCompletionRequest(BaseModel):
     model: Optional[str] = None
@@ -1091,6 +1093,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
     # 1. Assembling prompt from system instructions and conversation history
     system_parts: List[str] = []
     dialogue_parts: List[str] = []
+    has_recent_tool_result = False
     
     for msg in req.messages:
         role = msg.role.lower()
@@ -1100,7 +1103,20 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         elif role == "user":
             dialogue_parts.append(f"Klient: {content}")
         elif role == "assistant":
-            dialogue_parts.append(f"Asystent: {content}")
+            if msg.tool_calls:
+                calls_repr = []
+                for tc in msg.tool_calls:
+                    fn = tc.get("function", {}) if isinstance(tc, dict) else getattr(tc, "function", {})
+                    name = fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", "")
+                    args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", "")
+                    calls_repr.append(f"[Wywołano narzędzie `{name}`: {args}]")
+                text = (content + " " + " ".join(calls_repr)).strip()
+                dialogue_parts.append(f"Asystent: {text}")
+            elif content:
+                dialogue_parts.append(f"Asystent: {content}")
+        elif role in ("tool", "function"):
+            has_recent_tool_result = True
+            dialogue_parts.append(f"[Wynik wykonania narzędzia: {content}]")
             
     prompt_sections: List[str] = []
     if system_parts:
@@ -1125,6 +1141,14 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
     if dialogue_parts:
         prompt_sections.append("### PRZEBIEG ROZMOWY:\n" + "\n".join(dialogue_parts))
         
+    if has_recent_tool_result:
+        prompt_sections.append(
+            "### WAŻNA INFORMACJA:\n"
+            "W przebiegu rozmowy powyżej znajduje się wynik ostatnio wywołanego narzędzia. "
+            "Odpowiedz klientowi w swoim naturalnym stylu na podstawie otrzymanych danych. "
+            "Nie powtarzaj tego samego wywołania narzędzia."
+        )
+
     prompt_sections.append("### TWOJE ZADANIE:\nOdpowiedz bezpośrednio i precyzyjnie jako Asystent AI zgodnie z powyższymi wytycznymi.")
     
     full_prompt = "\n\n".join(prompt_sections)
